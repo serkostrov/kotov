@@ -52,16 +52,17 @@ docker compose up --build
 1. В Dokploy создайте **Application** → Git-репозиторий этого проекта.
 2. **Build Type:** `Dockerfile` (файл `Dockerfile` в корне, context `.`).
 3. **Port:** `80`.
-4. **Build Arguments** (обязательно, иначе сборка упадёт):
+4. **Environment** (обычные переменные окружения — этого достаточно):
 
 ```text
 VITE_SUPABASE_URL=https://your-supabase-host
 VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-5. Runtime Environment для этого сервиса не нужен — `VITE_*` вшиваются на этапе `npm run build`.
-6. Домен / SSL — в настройках приложения Dokploy (прокси на порт 80).
-7. Healthcheck: `GET /healthz` → `ok`.
+При старте контейнер пишет `/env.js` из этих переменных. Build Arguments не обязательны.
+
+5. Домен / SSL — в настройках приложения Dokploy (прокси на порт 80).
+6. Healthcheck: `GET /healthz` → `ok`.
 
 Перед продом на том же Supabase:
 
@@ -70,7 +71,7 @@ npx supabase db push
 npx supabase functions deploy admin-create-user
 ```
 
-Не кладите `SUPABASE_SERVICE_ROLE_KEY` в Build Arguments и в образ.
+Не кладите `SUPABASE_SERVICE_ROLE_KEY` в Environment приложения фронта.
 
 Локальная проверка образа:
 

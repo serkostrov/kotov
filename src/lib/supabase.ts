@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/database.types'
+import { getPublicEnv } from '@/lib/env'
 
-const url = import.meta.env.VITE_SUPABASE_URL
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const { VITE_SUPABASE_URL: url, VITE_SUPABASE_ANON_KEY: anonKey } = getPublicEnv()
 
 export const isSupabaseConfigured = Boolean(url && anonKey)
 
