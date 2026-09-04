@@ -322,7 +322,7 @@ export function useObjectMutations() {
 
   const softDelete = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('objects').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+      const { error } = await supabase.rpc('soft_delete_object', { _id: id })
       if (error) throw error
     },
     onSuccess: invalidate,

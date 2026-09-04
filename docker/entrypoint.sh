@@ -1,25 +1,29 @@
 #!/bin/sh
 set -eu
 
-ENV_FILE="/usr/share/nginx/html/env.js"
+ROOT="/usr/share/nginx/html"
+URL="${VITE_SUPABASE_URL:-}"
+KEY="${VITE_SUPABASE_ANON_KEY:-}"
 
-# Escape for JS string literals
-js_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/'"'"'/\\'"'"'/g' -e ':a;N;$!ba;s/\n/\\n/g'
-}
-
-URL="$(js_escape "${VITE_SUPABASE_URL:-}")"
-KEY="$(js_escape "${VITE_SUPABASE_ANON_KEY:-}")"
-
-if [ -z "${VITE_SUPABASE_URL:-}" ] || [ -z "${VITE_SUPABASE_ANON_KEY:-}" ]; then
+if [ -z "$URL" ] || [ -z "$KEY" ]; then
   echo "WARNING: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are empty. Set them in Dokploy Environment." >&2
 fi
 
-cat > "$ENV_FILE" <<EOF
-window.__ENV__ = {
-  VITE_SUPABASE_URL: "${URL}",
-  VITE_SUPABASE_ANON_KEY: "${KEY}"
-};
-EOF
+# Escape chars that break sed replacement (|, &, \, newline)
+sed_escape() {
+  printf '%s' "$1" | sed -e 's/[\\|&]/g' -e 's/&/\\&/g' -e ':a;N;$!ba;s/\n/\\n/g'
+}
+
+SAFE_URL="$(sed_escape "$URL")"
+SAFE_KEY="$(sed_escape "$KEY")"
+
+# Inject into built assets (no public /env.js endpoint)
+find "$ROOT" -type f \( -name '*.js' -o -name '*.html' -o -name '*.css' \) -print0 \
+  | xargs -0 -r sed -i \
+      -e "s|__KOTOV_SUPABASE_URL__|${SAFE_URL}|g" \
+      -e "s|__KOTOV_SUPABASE_ANON_KEY__|${SAFE_KEY}|g"
+
+# Remove any leftover env artifacts from the image
+rm -f "$ROOT/env.js" "$ROOT/env.json" "$ROOT/.env" "$ROOT/.env.production"
 
 exec nginx -g "daemon off;"

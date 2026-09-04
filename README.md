@@ -59,7 +59,7 @@ VITE_SUPABASE_URL=https://your-supabase-host
 VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-При старте контейнер пишет `/env.js` из этих переменных. Build Arguments не обязательны.
+При старте контейнер подставляет `VITE_*` в собранный JS (без публичного `/env.js`). Build Arguments не обязательны.
 
 5. Домен / SSL — в настройках приложения Dokploy (прокси на порт 80).
 6. Healthcheck: `GET /healthz` → `ok`.

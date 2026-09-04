@@ -502,6 +502,7 @@ export type Database = {
       is_owner: { Args: Record<string, never>; Returns: boolean }
       has_any_role: { Args: Record<string, never>; Returns: boolean }
       has_object_access: { Args: { _object_id: string }; Returns: boolean }
+      soft_delete_object: { Args: { _id: string }; Returns: undefined }
       create_tool_movement: {
         Args: {
           _tool_id: string
