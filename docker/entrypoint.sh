@@ -9,9 +9,12 @@ if [ -z "$URL" ] || [ -z "$KEY" ]; then
   echo "WARNING: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are empty. Set them in Dokploy Environment." >&2
 fi
 
-# Escape chars that break sed replacement (|, &, \, newline)
+# Escape chars that break sed replacement when delimiter is |
 sed_escape() {
-  printf '%s' "$1" | sed -e 's/[\\|&]/g' -e 's/&/\\&/g' -e ':a;N;$!ba;s/\n/\\n/g'
+  printf '%s' "$1" | sed \
+    -e 's/\\/\\\\/g' \
+    -e 's/|/\\|/g' \
+    -e 's/&/\\&/g'
 }
 
 SAFE_URL="$(sed_escape "$URL")"
@@ -24,6 +27,6 @@ find "$ROOT" -type f \( -name '*.js' -o -name '*.html' -o -name '*.css' \) -prin
       -e "s|__KOTOV_SUPABASE_ANON_KEY__|${SAFE_KEY}|g"
 
 # Remove any leftover env artifacts from the image
-rm -f "$ROOT/env.js" "$ROOT/env.json" "$ROOT/.env" "$ROOT/.env.production"
+rm -f "$ROOT/env.js" "$ROOT/.env" "$ROOT/.env.production"
 
 exec nginx -g "daemon off;"
