@@ -1,4 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="7" fill="#1A2332"/>
-  <path d="M7.5 8h5l4.8 7.4L22.2 8H27L20.2 18.2 27 28h-4.8l-4.9-7.5L12.5 28H7.5l6.8-9.8L7.5 8z" fill="#C87B3A"/>
+  <rect width="32" height="32" rx="8" fill="#C87B3A"/>
+  <path d="M7.5 14.5 10.2 4.8 15.2 12.8Z" fill="#1A2332"/>
+  <path d="M24.5 14.5 21.8 4.8 16.8 12.8Z" fill="#1A2332"/>
+  <ellipse cx="16" cy="18.2" rx="9" ry="8.4" fill="#1A2332"/>
+  <ellipse cx="12.6" cy="17.2" rx="1.55" ry="1.8" fill="#C87B3A"/>
+  <ellipse cx="19.4" cy="17.2" rx="1.55" ry="1.8" fill="#C87B3A"/>
+  <ellipse cx="12.6" cy="17.45" rx="0.55" ry="0.95" fill="#1A2332"/>
+  <ellipse cx="19.4" cy="17.45" rx="0.55" ry="0.95" fill="#1A2332"/>
+  <path d="M16 19.1 14.55 21.15h2.9Z" fill="#C87B3A"/>
+  <path d="M16 21.1v1.1M16 22.2c-1.1.05-2-.55-2.35-1.15M16 22.2c1.1.05 2-.55 2.35-1.15" stroke="#C87B3A" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M6.8 18.4h3.4M6.5 20.2h3.5M25.2 18.4h-3.4M25.5 20.2h-3.5" stroke="#C87B3A" stroke-width="0.85" stroke-linecap="round" opacity="0.85"/>
 </svg>

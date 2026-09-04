@@ -41,7 +41,42 @@ npx tsx scripts/seed-demo.ts
 
 ```bash
 npm run build
+# локально как на Dokploy (нужны VITE_* в .env)
 docker compose up --build
+```
+
+## Деплой на Dokploy
+
+Фронт — статика в nginx. Supabase (Auth/DB/Storage) снаружи.
+
+1. В Dokploy создайте **Application** → Git-репозиторий этого проекта.
+2. **Build Type:** `Dockerfile` (файл `Dockerfile` в корне, context `.`).
+3. **Port:** `80`.
+4. **Build Arguments** (обязательно, иначе сборка упадёт):
+
+```text
+VITE_SUPABASE_URL=https://your-supabase-host
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+5. Runtime Environment для этого сервиса не нужен — `VITE_*` вшиваются на этапе `npm run build`.
+6. Домен / SSL — в настройках приложения Dokploy (прокси на порт 80).
+7. Healthcheck: `GET /healthz` → `ok`.
+
+Перед продом на том же Supabase:
+
+```bash
+npx supabase db push
+npx supabase functions deploy admin-create-user
+```
+
+Не кладите `SUPABASE_SERVICE_ROLE_KEY` в Build Arguments и в образ.
+
+Локальная проверка образа:
+
+```bash
+docker compose up --build
+# http://localhost:8080
 ```
 
 ## Роли

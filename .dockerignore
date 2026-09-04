@@ -1,0 +1,36 @@
+# dependencies & build
+node_modules
+dist
+dist-ssr
+*.local
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# git / IDE / OS
+.git
+.gitignore
+.cursor
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# docs / local tooling (not needed in image)
+*.md
+!README.md
+supabase/.temp
+coverage
+playwright-report
+test-results
+_tz_extract.txt
+scripts/_*
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
