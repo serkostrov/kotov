@@ -3,6 +3,7 @@ import { AppShell } from '@/components/layout/app-shell'
 import { ForgotPasswordPage, LoginPage, NoAccessPage } from '@/features/auth/login-page'
 import { GuestOnly, RequireAuth, RequireRoles } from '@/features/auth/guards'
 import { useAuth } from '@/features/auth/auth-provider'
+import { ContactsPage } from '@/features/contacts/contacts-page'
 import { DashboardPage } from '@/features/dashboard/dashboard-page'
 import { ExpensesPage } from '@/features/expenses/expenses-page'
 import { MyObjectPage, MyObjectsPage } from '@/features/my/my-page'
@@ -34,6 +35,7 @@ export function AppRouter() {
         <Route element={<AppShell />}>
           <Route element={<RequireRoles allow={['owner']} />}>
             <Route path="/" element={<DashboardPage />} />
+            <Route path="/contacts" element={<ContactsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route element={<RequireRoles allow={['owner', 'prod_foreman', 'install_foreman', 'accountant']} />}>

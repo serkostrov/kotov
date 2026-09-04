@@ -95,25 +95,40 @@ export function useExpenseMutations() {
 
 export type RequestFilters = {
   objectId?: string | 'all'
+  /** false = open tasks, true = completed (purchased) */
+  done?: boolean
   status?: RequestStatus | 'all'
+  page?: number
+  pageSize?: number
 }
 
 export function useMaterialRequests(filters: RequestFilters) {
+  const page = filters.page ?? 0
+  const pageSize = filters.pageSize ?? 50
   return useQuery({
     queryKey: qk.requests(filters),
     queryFn: async () => {
       let query = supabase
         .from('material_requests')
-        .select('*')
+        .select('*', { count: 'exact' })
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
       if (filters.objectId && filters.objectId !== 'all') query = query.eq('object_id', filters.objectId)
-      if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
-      const { data, error } = await query
+      if (filters.done === true) {
+        query = query.eq('status', 'purchased')
+      } else if (filters.done === false) {
+        query = query.in('status', ['new', 'approved'])
+      } else if (filters.status && filters.status !== 'all') {
+        query = query.eq('status', filters.status)
+      }
+      const { data, error, count } = await query.range(page * pageSize, page * pageSize + pageSize - 1)
       if (error) throw error
       const { data: objects } = await supabase.from('objects').select('id, name').is('deleted_at', null)
       const objectMap = new Map((objects ?? []).map((o) => [o.id, o]))
-      return (data ?? []).map((row) => ({ ...row, object: objectMap.get(row.object_id) ?? null }))
+      return {
+        rows: (data ?? []).map((row) => ({ ...row, object: objectMap.get(row.object_id) ?? null })),
+        count: count ?? 0,
+      }
     },
   })
 }
@@ -141,7 +156,33 @@ export function useRequestMutations() {
     onSuccess: invalidate,
   })
 
-  return { create, update }
+  const softDelete = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('material_requests')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  const complete = useMutation({
+    mutationFn: async ({ id, userId }: { id: string; userId?: string }) => {
+      const { error } = await supabase
+        .from('material_requests')
+        .update({
+          status: 'purchased',
+          resolved_at: new Date().toISOString(),
+          resolved_by: userId ?? null,
+        })
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  return { create, update, softDelete, complete }
 }
 
 export function useAttachments(objectId: string | undefined, kinds: Array<'photo' | 'video' | 'document'>) {

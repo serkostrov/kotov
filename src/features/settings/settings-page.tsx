@@ -1,8 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Pencil, Plus, Power, Trash2 } from 'lucide-react'
+import { KeyRound, Pencil, Plus, Power, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
 import { EmptyState, ErrorState } from '@/components/empty-state'
 import { IconButton } from '@/components/icon-button'
 import { Field, PageHeader } from '@/components/page-header'
@@ -17,9 +16,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -37,6 +36,18 @@ import { humanizeError } from '@/lib/errors'
 import { supabase } from '@/lib/supabase'
 
 const ALL_ROLES: AppRole[] = ['owner', 'prod_foreman', 'install_foreman', 'accountant']
+
+function primaryRole(roles: AppRole[]): AppRole | null {
+  return roles[0] ?? null
+}
+
+async function setUserRole(userId: string, role: AppRole | null) {
+  const { error: delError } = await supabase.from('user_roles').delete().eq('user_id', userId)
+  if (delError) throw delError
+  if (!role) return
+  const { error: insError } = await supabase.from('user_roles').insert({ user_id: userId, role })
+  if (insError) throw insError
+}
 
 type CatalogTable = 'expense_categories' | 'tool_categories'
 type CatalogRow = { id: string; name: string; is_active: boolean }
@@ -134,8 +145,8 @@ function UsersTab({
 }) {
   const users = useUsersAdmin()
   const [editing, setEditing] = useState<AdminUser | null>(null)
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null)
   const [deleting, setDeleting] = useState<AdminUser | null>(null)
-  const client = useQueryClient()
 
   if (users.isLoading) return <Skeleton className="h-40" />
   if (users.isError) return <ErrorState message={humanizeError(users.error)} onRetry={() => void users.refetch()} />
@@ -146,62 +157,50 @@ function UsersTab({
         <EmptyState title="Пользователей нет" />
       ) : (
         <div className="grid gap-1.5">
-          {(users.data ?? []).map((u) => (
-            <Card
-              key={u.id}
-              className="cursor-pointer transition-colors hover:bg-muted/20"
-              onClick={() => setEditing(u)}
-            >
-              <CardContent className="flex items-start gap-3 p-3 sm:items-center">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium leading-tight">
-                    {u.full_name}
-                    {!u.is_active ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">отключён</span> : null}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">{u.position ?? u.phone ?? '—'}</p>
-                  <div className="mt-1.5 flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
-                    {ALL_ROLES.map((role) => (
-                      <label
-                        key={role}
-                        className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-transparent px-1 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:bg-muted/40"
-                      >
-                        <Checkbox
-                          checked={u.roles.includes(role)}
-                          onCheckedChange={async (v) => {
-                            if (v) {
-                              const { error } = await supabase.from('user_roles').insert({ user_id: u.id, role })
-                              if (error) toast.error(humanizeError(error))
-                            } else {
-                              const { error } = await supabase.from('user_roles').delete().eq('user_id', u.id).eq('role', role)
-                              if (error) toast.error(humanizeError(error))
-                            }
-                            void client.invalidateQueries({ queryKey: ['users'] })
-                          }}
-                        />
-                        {ROLE_LABELS[role]}
-                      </label>
-                    ))}
+          {(users.data ?? []).map((u) => {
+            const role = primaryRole(u.roles)
+            return (
+              <Card
+                key={u.id}
+                className="cursor-pointer transition-colors hover:bg-muted/20"
+                onClick={() => setEditing(u)}
+              >
+                <CardContent className="flex items-center gap-3 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium leading-tight">
+                      {u.full_name}
+                      {!u.is_active ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">отключён</span> : null}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{u.email ?? '—'}</p>
+                    <div className="mt-1.5">
+                      {role ? (
+                        <Badge tone="outline">{ROLE_LABELS[role]}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">роль не назначена</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="flex shrink-0 gap-1" onClick={(e) => e.stopPropagation()}>
-                  <IconButton icon={Pencil} label="Изменить" onClick={() => setEditing(u)} />
-                  <IconButton
-                    icon={Power}
-                    label={u.is_active ? 'Отключить' : 'Включить'}
-                    onClick={async () => {
-                      const { error } = await supabase.from('profiles').update({ is_active: !u.is_active }).eq('id', u.id)
-                      if (error) toast.error(humanizeError(error))
-                      else {
-                        toast.success(u.is_active ? 'Пользователь отключён' : 'Пользователь включён')
-                        void users.refetch()
-                      }
-                    }}
-                  />
-                  <IconButton icon={Trash2} label="Удалить" variant="destructive" onClick={() => setDeleting(u)} />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  <div className="flex shrink-0 gap-1" onClick={(e) => e.stopPropagation()}>
+                    <IconButton icon={Pencil} label="Изменить" onClick={() => setEditing(u)} />
+                    <IconButton icon={KeyRound} label="Сменить пароль" onClick={() => setPasswordUser(u)} />
+                    <IconButton
+                      icon={Power}
+                      label={u.is_active ? 'Отключить' : 'Включить'}
+                      onClick={async () => {
+                        const { error } = await supabase.from('profiles').update({ is_active: !u.is_active }).eq('id', u.id)
+                        if (error) toast.error(humanizeError(error))
+                        else {
+                          toast.success(u.is_active ? 'Пользователь отключён' : 'Пользователь включён')
+                          void users.refetch()
+                        }
+                      }}
+                    />
+                    <IconButton icon={Trash2} label="Удалить" variant="destructive" onClick={() => setDeleting(u)} />
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
       <CreateUserDialog open={createOpen} onOpenChange={onCreateOpenChange} onCreated={() => void users.refetch()} />
@@ -212,6 +211,17 @@ function UsersTab({
           if (!open) setEditing(null)
         }}
         onSaved={() => void users.refetch()}
+        onChangePassword={(u) => {
+          setEditing(null)
+          setPasswordUser(u)
+        }}
+      />
+      <ChangePasswordDialog
+        user={passwordUser}
+        open={Boolean(passwordUser)}
+        onOpenChange={(open) => {
+          if (!open) setPasswordUser(null)
+        }}
       />
       <ConfirmDeleteDialog
         open={Boolean(deleting)}
@@ -251,9 +261,8 @@ function CreateUserDialog({
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
-  const [position, setPosition] = useState('')
   const [password, setPassword] = useState('')
-  const [roles, setRoles] = useState<AppRole[]>([])
+  const [role, setRole] = useState<AppRole | ''>('')
   const [pending, setPending] = useState(false)
 
   useEffect(() => {
@@ -261,9 +270,8 @@ function CreateUserDialog({
       setEmail('')
       setFullName('')
       setPhone('')
-      setPosition('')
       setPassword('')
-      setRoles([])
+      setRole('')
     }
   }, [open])
 
@@ -282,26 +290,26 @@ function CreateUserDialog({
         <Field label="Телефон">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
-        <Field label="Должность">
-          <Input value={position} onChange={(e) => setPosition(e.target.value)} />
+        <Field label="Роль">
+          <Select value={role || undefined} onValueChange={(v) => setRole(v as AppRole)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Выберите роль" />
+            </SelectTrigger>
+            <SelectContent>
+              {ALL_ROLES.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
         <Field label="Временный пароль">
           <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Если пусто — сгенерируется" />
         </Field>
-        <div className="grid gap-2">
-          {ALL_ROLES.map((role) => (
-            <label key={role} className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={roles.includes(role)}
-                onCheckedChange={(v) => setRoles((prev) => (v ? [...prev, role] : prev.filter((r) => r !== role)))}
-              />
-              {ROLE_LABELS[role]}
-            </label>
-          ))}
-        </div>
         <DialogFooter>
           <Button
-            disabled={pending || !email || !fullName}
+            disabled={pending || !email || !fullName || !role}
             onClick={async () => {
               setPending(true)
               try {
@@ -310,9 +318,8 @@ function CreateUserDialog({
                     email,
                     full_name: fullName,
                     phone,
-                    position,
                     password: password || undefined,
-                    roles,
+                    roles: role ? [role] : [],
                   },
                 })
                 if (error) throw error
@@ -340,22 +347,24 @@ function EditUserDialog({
   open,
   onOpenChange,
   onSaved,
+  onChangePassword,
 }: {
-  user: { id: string; full_name: string; phone: string | null; position: string | null } | null
+  user: AdminUser | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: () => void
+  onChangePassword: (user: AdminUser) => void
 }) {
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
-  const [position, setPosition] = useState('')
+  const [role, setRole] = useState<AppRole | ''>('')
   const [pending, setPending] = useState(false)
 
   useEffect(() => {
     if (user) {
       setFullName(user.full_name)
       setPhone(user.phone ?? '')
-      setPosition(user.position ?? '')
+      setRole(primaryRole(user.roles) ?? '')
     }
   }, [user])
 
@@ -365,39 +374,143 @@ function EditUserDialog({
         <DialogHeader>
           <DialogTitle>Редактировать пользователя</DialogTitle>
         </DialogHeader>
+        <Field label="Учётная почта">
+          <Input value={user?.email ?? '—'} disabled readOnly />
+        </Field>
         <Field label="ФИО">
           <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
         </Field>
         <Field label="Телефон">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
-        <Field label="Должность">
-          <Input value={position} onChange={(e) => setPosition(e.target.value)} />
+        <Field label="Роль">
+          <Select value={role || undefined} onValueChange={(v) => setRole(v as AppRole)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Выберите роль" />
+            </SelectTrigger>
+            <SelectContent>
+              {ALL_ROLES.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:justify-between">
           <Button
-            disabled={pending || !fullName.trim()}
+            type="button"
+            variant="outline"
+            disabled={!user}
+            onClick={() => {
+              if (user) onChangePassword(user)
+            }}
+          >
+            Сменить пароль
+          </Button>
+          <Button
+            disabled={pending || !fullName.trim() || !role}
             onClick={async () => {
-              if (!user) return
+              if (!user || !role) return
               setPending(true)
-              const { error } = await supabase
-                .from('profiles')
-                .update({
-                  full_name: fullName.trim(),
-                  phone: phone.trim() || null,
-                  position: position.trim() || null,
-                })
-                .eq('id', user.id)
-              setPending(false)
-              if (error) toast.error(humanizeError(error))
-              else {
+              try {
+                const { error } = await supabase
+                  .from('profiles')
+                  .update({
+                    full_name: fullName.trim(),
+                    phone: phone.trim() || null,
+                  })
+                  .eq('id', user.id)
+                if (error) throw error
+                await setUserRole(user.id, role)
                 toast.success('Сохранено')
                 onOpenChange(false)
                 onSaved()
+              } catch (error) {
+                toast.error(humanizeError(error))
+              } finally {
+                setPending(false)
               }
             }}
           >
             Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ChangePasswordDialog({
+  user,
+  open,
+  onOpenChange,
+}: {
+  user: AdminUser | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [pending, setPending] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setPassword('')
+      setConfirm('')
+    }
+  }, [open])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Сменить пароль</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Новый пароль для входа{user?.full_name ? ` — ${user.full_name}` : ''}
+          {user?.email ? ` (${user.email})` : ''}.
+        </p>
+        <Field label="Новый пароль">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Не короче 8 символов"
+          />
+        </Field>
+        <Field label="Повтор пароля">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </Field>
+        <DialogFooter>
+          <Button
+            disabled={pending || password.length < 8 || password !== confirm}
+            onClick={async () => {
+              if (!user) return
+              setPending(true)
+              try {
+                const { data, error } = await supabase.functions.invoke('admin-set-password', {
+                  body: { user_id: user.id, password },
+                })
+                if (error) throw error
+                const payload = data as { error?: string; ok?: boolean } | null
+                if (payload?.error) throw new Error(payload.error)
+                toast.success('Пароль обновлён')
+                onOpenChange(false)
+              } catch (error) {
+                toast.error(humanizeError(error))
+              } finally {
+                setPending(false)
+              }
+            }}
+          >
+            Сохранить пароль
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -629,52 +742,54 @@ function StagesTab({
   }
 
   return (
-    <div className="space-y-4">
-      <TemplateSection
-        title="Производство"
-        description="Типовые работы для вкладки «Производство» на объекте"
-        rows={production}
-        highlighted={focusType === 'production'}
-        onAdd={() => openCreate('production')}
-        onEdit={(row) => {
-          setEditing(row)
-          setEditName(row.name)
-          setEditType(row.stage_type)
-          setEditUnit(row.unit ?? '')
-        }}
-        onToggle={async (row) => {
-          const { error } = await supabase.from('stage_templates').update({ is_active: !row.is_active }).eq('id', row.id)
-          if (error) toast.error(humanizeError(error))
-          else {
-            toast.success(row.is_active ? 'Отключено' : 'Включено')
-            void templates.refetch()
-          }
-        }}
-        onDelete={setDeleting}
-      />
+    <div className="flex h-[calc(100dvh-14.5rem)] flex-col lg:h-[calc(100dvh-10.5rem)]">
+      <div className="grid min-h-0 flex-1 grid-rows-2 gap-4 md:grid-cols-2 md:grid-rows-1">
+        <TemplateSection
+          title="Производство"
+          description="Типовые работы для вкладки «Производство» на объекте"
+          rows={production}
+          highlighted={focusType === 'production'}
+          onAdd={() => openCreate('production')}
+          onEdit={(row) => {
+            setEditing(row)
+            setEditName(row.name)
+            setEditType(row.stage_type)
+            setEditUnit(row.unit ?? '')
+          }}
+          onToggle={async (row) => {
+            const { error } = await supabase.from('stage_templates').update({ is_active: !row.is_active }).eq('id', row.id)
+            if (error) toast.error(humanizeError(error))
+            else {
+              toast.success(row.is_active ? 'Отключено' : 'Включено')
+              void templates.refetch()
+            }
+          }}
+          onDelete={setDeleting}
+        />
 
-      <TemplateSection
-        title="Монтаж"
-        description="Типовые монтажные работы — добавляются на объект из шаблона"
-        rows={installation}
-        highlighted={focusType === 'installation'}
-        onAdd={() => openCreate('installation')}
-        onEdit={(row) => {
-          setEditing(row)
-          setEditName(row.name)
-          setEditType(row.stage_type)
-          setEditUnit(row.unit ?? '')
-        }}
-        onToggle={async (row) => {
-          const { error } = await supabase.from('stage_templates').update({ is_active: !row.is_active }).eq('id', row.id)
-          if (error) toast.error(humanizeError(error))
-          else {
-            toast.success(row.is_active ? 'Отключено' : 'Включено')
-            void templates.refetch()
-          }
-        }}
-        onDelete={setDeleting}
-      />
+        <TemplateSection
+          title="Монтаж"
+          description="Типовые монтажные работы — добавляются на объект из шаблона"
+          rows={installation}
+          highlighted={focusType === 'installation'}
+          onAdd={() => openCreate('installation')}
+          onEdit={(row) => {
+            setEditing(row)
+            setEditName(row.name)
+            setEditType(row.stage_type)
+            setEditUnit(row.unit ?? '')
+          }}
+          onToggle={async (row) => {
+            const { error } = await supabase.from('stage_templates').update({ is_active: !row.is_active }).eq('id', row.id)
+            if (error) toast.error(humanizeError(error))
+            else {
+              toast.success(row.is_active ? 'Отключено' : 'Включено')
+              void templates.refetch()
+            }
+          }}
+          onDelete={setDeleting}
+        />
+      </div>
 
       <Dialog open={createOpen} onOpenChange={onCreateOpenChange}>
         <DialogContent>
@@ -836,9 +951,9 @@ function TemplateSection({
 }) {
   return (
     <section
-      className={`overflow-hidden rounded-xl border bg-card ${highlighted ? 'ring-1 ring-primary/25' : 'border-border/80'}`}
+      className={`flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card ${highlighted ? 'ring-1 ring-primary/25' : 'border-border/80'}`}
     >
-      <div className="flex items-start justify-between gap-3 border-b border-border/70 px-3.5 py-2.5">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border/70 px-3.5 py-2.5">
         <div className="min-w-0">
           <h2 className="text-[13px] font-semibold tracking-tight">{title}</h2>
           <p className="text-[11px] text-muted-foreground">{description}</p>
@@ -849,11 +964,11 @@ function TemplateSection({
         </Button>
       </div>
       {rows.length === 0 ? (
-        <p className="px-3.5 py-6 text-center text-[13px] text-muted-foreground">
+        <p className="flex flex-1 items-center justify-center px-3.5 py-6 text-center text-[13px] text-muted-foreground">
           Шаблонов пока нет — добавьте типовые работы.
         </p>
       ) : (
-        <div className="divide-y divide-border/70">
+        <div className="min-h-0 flex-1 divide-y divide-border/70 overflow-y-auto overscroll-contain">
           {rows.map((row) => (
             <div
               key={row.id}

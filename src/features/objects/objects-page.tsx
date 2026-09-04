@@ -6,7 +6,7 @@ import { DualProgress } from '@/components/dual-progress'
 import { EmptyState, ErrorState } from '@/components/empty-state'
 import { FilterBar } from '@/components/filter-bar'
 import { IconButton } from '@/components/icon-button'
-import { Money, ProfitLine } from '@/components/money'
+import { ContractSpendLine } from '@/components/money'
 import { PageHeader } from '@/components/page-header'
 import { ObjectStatusBadge } from '@/components/status-badge'
 import {
@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/features/auth/auth-provider'
 import { ObjectFormDialog, toObjectPayload } from '@/features/objects/object-form-dialog'
-import { useObjectMutations, useObjects, useProfiles } from '@/hooks/use-objects'
+import { useObjectMutations, useObjects, useProfiles, useContacts } from '@/hooks/use-objects'
 import type { ObjectStatus } from '@/lib/database.types'
 import { OBJECT_STATUS_LABELS } from '@/lib/dictionaries'
 import { humanizeError } from '@/lib/errors'
@@ -57,9 +57,11 @@ export function ObjectsPage() {
     sort,
   })
   const profiles = useProfiles()
+  const contacts = useContacts()
   const mutations = useObjectMutations()
 
   const people = useMemo(() => profiles.data ?? [], [profiles.data])
+  const contactList = useMemo(() => contacts.data ?? [], [contacts.data])
 
   const stopRowNav = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -168,10 +170,9 @@ export function ObjectsPage() {
                       installation={object.progress?.progress_installation ?? null}
                     />
                     {showEco && object.economics ? (
-                      <ProfitLine
-                        profit={Number(object.economics.profit)}
-                        margin={object.economics.margin_percent}
-                        contractAmount={Number(object.economics.contract_amount)}
+                      <ContractSpendLine
+                        contractAmount={object.economics.contract_amount}
+                        expensesTotal={object.economics.expenses_total}
                       />
                     ) : null}
                   </Link>
@@ -200,7 +201,7 @@ export function ObjectsPage() {
                   <th className="px-3 py-2 font-medium">Прогресс</th>
                   <th className="px-3 py-2 font-medium">Срок</th>
                   <th className="px-3 py-2 font-medium">Ответственный</th>
-                  {showEco ? <th className="px-3 py-2 font-medium">Экономика</th> : null}
+                  {showEco ? <th className="px-3 py-2 font-medium">Средства</th> : null}
                   {owner ? <th className="w-20 px-3 py-2 font-medium" /> : null}
                 </tr>
               </thead>
@@ -237,14 +238,11 @@ export function ObjectsPage() {
                     {showEco ? (
                       <td className="px-3 py-2.5">
                         {object.economics ? (
-                          <div className="grid">
-                            <Money value={object.economics.contract_amount} />
-                            <ProfitLine
-                              profit={Number(object.economics.profit)}
-                              margin={object.economics.margin_percent}
-                              contractAmount={Number(object.economics.contract_amount)}
-                            />
-                          </div>
+                          <ContractSpendLine
+                            compact
+                            contractAmount={object.economics.contract_amount}
+                            expensesTotal={object.economics.expenses_total}
+                          />
                         ) : (
                           '—'
                         )}
@@ -276,9 +274,10 @@ export function ObjectsPage() {
         onOpenChange={setCreateOpen}
         mode="create"
         people={people}
+        contacts={contactList}
         pending={mutations.create.isPending}
         onSubmit={(values) =>
-          mutations.create.mutate(toObjectPayload(values), {
+          mutations.create.mutate(toObjectPayload(values, contactList), {
             onSuccess: () => {
               toast.success('Объект создан')
               setCreateOpen(false)
@@ -295,12 +294,13 @@ export function ObjectsPage() {
         }}
         mode="edit"
         people={people}
+        contacts={contactList}
         defaults={editing}
         pending={mutations.update.isPending}
         onSubmit={(values) => {
           if (!editing) return
           mutations.update.mutate(
-            { id: editing.id, values: toObjectPayload(values) },
+            { id: editing.id, values: toObjectPayload(values, contactList) },
             {
               onSuccess: () => {
                 toast.success('Сохранено')

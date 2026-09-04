@@ -340,7 +340,7 @@ export function StagePage() {
               <ParamCell label="Ед. изм.">
                 <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="шт, м, т…" />
               </ParamCell>
-              <ParamCell label="Старт">
+              <ParamCell label="Начало">
                 <DatePicker value={dateStart} onChange={setDateStart} />
               </ParamCell>
               <ParamCell label="План завершения">

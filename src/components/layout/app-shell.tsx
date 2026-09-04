@@ -1,5 +1,6 @@
 import {
   ClipboardList,
+  Contact,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -11,6 +12,7 @@ import {
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Logo } from '@/components/logo'
+import { AuthBackdrop } from '@/components/auth-backdrop'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -27,9 +29,10 @@ function navForRoles(roles: Parameters<typeof isOwner>[0]): NavItem[] {
     return [
       { to: '/', label: 'Дашборд', icon: LayoutDashboard, end: true },
       { to: '/objects', label: 'Объекты', icon: Warehouse },
+      { to: '/contacts', label: 'Контакты', icon: Contact },
       { to: '/tools', label: 'Инструмент', icon: Wrench },
       { to: '/expenses', label: 'Расходы', icon: Receipt },
-      { to: '/requests', label: 'Заявки', icon: ClipboardList },
+      { to: '/requests', label: 'Задачи', icon: ClipboardList },
       { to: '/settings', label: 'Настройки', icon: Settings },
     ]
   }
@@ -37,7 +40,7 @@ function navForRoles(roles: Parameters<typeof isOwner>[0]): NavItem[] {
     return [
       { to: '/my', label: 'Мои объекты', icon: Warehouse },
       ...(canSeeTools(roles) ? [{ to: '/tools', label: 'Инструмент', icon: Wrench }] : []),
-      { to: '/requests', label: 'Заявки', icon: ClipboardList },
+      { to: '/requests', label: 'Задачи', icon: ClipboardList },
     ]
   }
   if (isAccountant(roles)) {
@@ -58,14 +61,8 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-dvh">
-      <aside className="sticky top-0 z-40 hidden h-dvh w-[14.25rem] shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground lg:flex">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-50"
-          style={{
-            backgroundImage:
-              'radial-gradient(ellipse 90% 45% at 0% 0%, oklch(0.55 0.1 55 / 0.28), transparent 55%)',
-          }}
-        />
+      <aside className="sticky top-0 z-40 hidden h-dvh w-[14.25rem] shrink-0 flex-col overflow-hidden text-sidebar-foreground lg:flex">
+        <AuthBackdrop className="pointer-events-none absolute inset-0" />
         <div className="relative flex h-full flex-col">
           <Brand name={brandName} />
           <nav className="flex flex-1 flex-col gap-0.5 px-2.5 py-1">
@@ -89,22 +86,28 @@ export function AppShell() {
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-[15.5rem] border-sidebar-border bg-sidebar p-0 text-sidebar-foreground">
-              <SheetHeader className="sr-only">
-                <SheetTitle>Меню</SheetTitle>
-              </SheetHeader>
-              <Brand name={brandName} />
-              <nav className="flex flex-col gap-0.5 px-2.5 py-1">
-                {items.map((item) => (
-                  <SideLink key={item.to} {...item} onClick={() => setOpen(false)} />
-                ))}
-              </nav>
-              <div className="px-2.5 pb-4">
-                <UserBlock
-                  name={profile?.full_name ?? 'Пользователь'}
-                  roleLabel={roles.map((r) => ROLE_LABELS[r]).join(' · ')}
-                  onSignOut={() => void signOut()}
-                />
+            <SheetContent
+              side="left"
+              className="w-[15.5rem] overflow-hidden border-sidebar-border bg-transparent p-0 text-sidebar-foreground"
+            >
+              <AuthBackdrop className="pointer-events-none absolute inset-0" />
+              <div className="relative flex h-full flex-col">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Меню</SheetTitle>
+                </SheetHeader>
+                <Brand name={brandName} />
+                <nav className="flex flex-col gap-0.5 px-2.5 py-1">
+                  {items.map((item) => (
+                    <SideLink key={item.to} {...item} onClick={() => setOpen(false)} />
+                  ))}
+                </nav>
+                <div className="mt-auto px-2.5 pb-4">
+                  <UserBlock
+                    name={profile?.full_name ?? 'Пользователь'}
+                    roleLabel={roles.map((r) => ROLE_LABELS[r]).join(' · ')}
+                    onSignOut={() => void signOut()}
+                  />
+                </div>
               </div>
             </SheetContent>
           </Sheet>

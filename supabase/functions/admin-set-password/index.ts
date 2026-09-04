@@ -6,12 +6,8 @@ const corsHeaders = {
 }
 
 type Body = {
-  email: string
-  full_name: string
-  phone?: string
-  position?: string
-  password?: string
-  roles?: string[]
+  user_id: string
+  password: string
 }
 
 function json(data: unknown, status = 200) {
@@ -50,44 +46,19 @@ Deno.serve(async (req) => {
     if (!ownerRow) return json({ error: 'Недостаточно прав' }, 403)
 
     const body = (await req.json()) as Body
-    if (!body.email || !body.full_name) return json({ error: 'Укажите email и ФИО' }, 400)
-
-    const generated = `${crypto.randomUUID().replaceAll('-', '').slice(0, 10)}Aa1`
-    const password = body.password && body.password.length >= 8 ? body.password : generated
-
-    const { data: created, error } = await admin.auth.admin.createUser({
-      email: body.email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: body.full_name, phone: body.phone ?? '' },
-    })
-    if (error || !created.user) throw error ?? new Error('Не удалось создать пользователя')
-
-    const { error: profileError } = await admin
-      .from('profiles')
-      .update({
-        full_name: body.full_name,
-        phone: body.phone ?? null,
-        email: body.email,
-        position: null,
-      })
-      .eq('id', created.user.id)
-    if (profileError) throw profileError
-
-    for (const role of body.roles ?? []) {
-      const { error: roleError } = await admin.from('user_roles').insert({
-        user_id: created.user.id,
-        role,
-      })
-      if (roleError) throw roleError
+    if (!body.user_id) return json({ error: 'Не указан пользователь' }, 400)
+    if (!body.password || body.password.length < 8) {
+      return json({ error: 'Пароль не короче 8 символов' }, 400)
     }
 
-    return json({
-      id: created.user.id,
-      password: body.password ? undefined : password,
+    const { error } = await admin.auth.admin.updateUserById(body.user_id, {
+      password: body.password,
     })
+    if (error) throw error
+
+    return json({ ok: true })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Ошибка создания пользователя'
+    const message = error instanceof Error ? error.message : 'Не удалось сменить пароль'
     return json({ error: message }, 400)
   }
 })

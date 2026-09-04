@@ -28,6 +28,7 @@ Edge Function создания пользователей:
 
 ```bash
 npx supabase functions deploy admin-create-user
+npx supabase functions deploy admin-set-password
 ```
 
 Тестовые данные (пароль не хранится в репозитории):
@@ -69,6 +70,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 ```bash
 npx supabase db push
 npx supabase functions deploy admin-create-user
+npx supabase functions deploy admin-set-password
 ```
 
 Не кладите `SUPABASE_SERVICE_ROLE_KEY` в Environment приложения фронта.

@@ -63,9 +63,9 @@ export const ATTACHMENT_KIND_LABELS: Record<AttachmentKind, string> = {
 }
 
 export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
-  new: 'Новая',
-  approved: 'Согласована',
-  purchased: 'Закуплено',
+  new: 'Открыта',
+  approved: 'Открыта',
+  purchased: 'Выполнена',
   rejected: 'Отклонена',
 }
 

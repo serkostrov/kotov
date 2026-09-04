@@ -38,6 +38,7 @@ export type Database = {
           full_name: string
           phone: string | null
           position: string | null
+          email: string | null
           is_active: boolean
           created_at: string
           updated_at: string
@@ -47,6 +48,7 @@ export type Database = {
           full_name: string
           phone?: string | null
           position?: string | null
+          email?: string | null
           is_active?: boolean
           created_at?: string
           updated_at?: string
@@ -56,6 +58,7 @@ export type Database = {
           full_name?: string
           phone?: string | null
           position?: string | null
+          email?: string | null
           is_active?: boolean
           created_at?: string
           updated_at?: string
@@ -87,6 +90,7 @@ export type Database = {
           address: string | null
           customer_name: string | null
           customer_contact: string | null
+          customer_contact_id: string | null
           date_start: string | null
           date_plan_end: string | null
           date_fact_end: string | null
@@ -105,6 +109,7 @@ export type Database = {
           address?: string | null
           customer_name?: string | null
           customer_contact?: string | null
+          customer_contact_id?: string | null
           date_start?: string | null
           date_plan_end?: string | null
           date_fact_end?: string | null
@@ -118,6 +123,26 @@ export type Database = {
           deleted_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['objects']['Insert']>
+        Relationships: []
+      }
+      contacts: {
+        Row: {
+          id: string
+          full_name: string
+          phone: string | null
+          created_at: string
+          updated_at: string
+          deleted_at: string | null
+        }
+        Insert: {
+          id?: string
+          full_name: string
+          phone?: string | null
+          created_at?: string
+          updated_at?: string
+          deleted_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['contacts']['Insert']>
         Relationships: []
       }
       object_members: {
@@ -274,6 +299,9 @@ export type Database = {
           tool_id: string
           movement_type: ToolMovementType
           object_id: string | null
+          object_name: string | null
+          from_object_id: string | null
+          from_object_name: string | null
           from_holder_id: string | null
           to_holder_id: string | null
           moved_at: string
@@ -286,6 +314,9 @@ export type Database = {
           tool_id: string
           movement_type: ToolMovementType
           object_id?: string | null
+          object_name?: string | null
+          from_object_id?: string | null
+          from_object_name?: string | null
           from_holder_id?: string | null
           to_holder_id?: string | null
           moved_at?: string
@@ -503,6 +534,10 @@ export type Database = {
       has_any_role: { Args: Record<string, never>; Returns: boolean }
       has_object_access: { Args: { _object_id: string }; Returns: boolean }
       soft_delete_object: { Args: { _id: string }; Returns: undefined }
+      list_auth_emails: {
+        Args: Record<string, never>
+        Returns: { id: string; email: string | null }[]
+      }
       create_tool_movement: {
         Args: {
           _tool_id: string

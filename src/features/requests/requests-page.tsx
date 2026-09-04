@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Check, Plus, X } from 'lucide-react'
+import { Check, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { DatePicker } from '@/components/date-picker'
 import { EmptyState, ErrorState } from '@/components/empty-state'
 import { FilterBar } from '@/components/filter-bar'
 import { IconButton } from '@/components/icon-button'
+import { ListPagination, useListPaging } from '@/components/list-pagination'
 import { Field, PageHeader } from '@/components/page-header'
 import { RequestStatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
@@ -17,23 +18,21 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/features/auth/auth-provider'
 import { useMaterialRequests, useRequestMutations } from '@/hooks/use-finance'
 import { useObjects } from '@/hooks/use-objects'
-import type { RequestStatus } from '@/lib/database.types'
-import { REQUEST_STATUS_LABELS } from '@/lib/dictionaries'
 import { humanizeError } from '@/lib/errors'
 import { formatDate } from '@/lib/format'
-import { isOwner } from '@/lib/roles'
+import { cn } from '@/lib/utils'
 
 export function RequestsPage() {
-  const { roles, user } = useAuth()
-  const owner = isOwner(roles)
-  const [status, setStatus] = useState<RequestStatus | 'all'>('all')
+  const { user } = useAuth()
+  const [showDone, setShowDone] = useState(false)
   const [objectId, setObjectId] = useState<string | 'all'>('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [formObjectId, setFormObjectId] = useState('')
   const [title, setTitle] = useState('')
   const [details, setDetails] = useState('')
   const [needBy, setNeedBy] = useState('')
-  const rows = useMaterialRequests({ status, objectId })
+  const { page, setPage, pageSize, setPageSize } = useListPaging(`${showDone}:${objectId}`)
+  const rows = useMaterialRequests({ objectId, done: showDone, page, pageSize })
   const objects = useObjects({ pageSize: 200 })
   const mut = useRequestMutations()
 
@@ -46,32 +45,33 @@ export function RequestsPage() {
 
   if (rows.isError) return <ErrorState message={humanizeError(rows.error)} onRetry={() => void rows.refetch()} />
 
+  const list = rows.data?.rows ?? []
+  const total = rows.data?.count ?? 0
+
   return (
     <div>
       <PageHeader
-        title="Заявки"
-        description="Любой сотрудник может создать заявку, руководитель согласовывает."
+        title="Задачи"
+        description="Простые задачи: выполнить или удалить."
         actions={
           <Button onClick={() => setCreateOpen(true)}>
             <Plus />
-            Новая заявка
+            Новая задача
           </Button>
         }
       />
-      <FilterBar>
-        <Select value={status} onValueChange={(v) => setStatus(v as RequestStatus | 'all')}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все статусы</SelectItem>
-            {(Object.keys(REQUEST_STATUS_LABELS) as RequestStatus[]).map((s) => (
-              <SelectItem key={s} value={s}>
-                {REQUEST_STATUS_LABELS[s]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <FilterBar
+        trailing={
+          <Button
+            type="button"
+            variant={showDone ? 'default' : 'outline'}
+            className={cn('h-9', !showDone && 'bg-background')}
+            onClick={() => setShowDone((v) => !v)}
+          >
+            Выполненные
+          </Button>
+        }
+      >
         <Select value={objectId} onValueChange={setObjectId}>
           <SelectTrigger>
             <SelectValue />
@@ -89,59 +89,66 @@ export function RequestsPage() {
 
       {rows.isLoading ? (
         <Skeleton className="h-40" />
-      ) : (rows.data ?? []).length === 0 ? (
-        <EmptyState title="Заявок нет" />
+      ) : list.length === 0 ? (
+        <EmptyState title={showDone ? 'Выполненных задач нет' : 'Открытых задач нет'} />
       ) : (
-        <div className="grid gap-1.5">
-          {(rows.data ?? []).map((row) => (
-            <Card key={row.id}>
-              <CardContent className="space-y-1.5 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-medium">{row.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {row.object?.name} · к {formatDate(row.need_by)}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <RequestStatusBadge status={row.status} />
-                    {owner && row.status === 'new' ? (
-                      <>
+        <>
+          <div className="grid gap-1.5">
+            {list.map((row) => (
+              <Card key={row.id}>
+                <CardContent className="space-y-1.5 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium">{row.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[row.object?.name, row.need_by ? `к ${formatDate(row.need_by)}` : null]
+                          .filter(Boolean)
+                          .join(' · ') || 'Без срока'}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {showDone ? <RequestStatusBadge status={row.status} /> : null}
+                      {!showDone ? (
                         <IconButton
                           icon={Check}
-                          label="Согласовать"
+                          label="Выполнить"
                           onClick={() =>
-                            mut.update.mutate(
+                            mut.complete.mutate(
+                              { id: row.id, userId: user?.id },
                               {
-                                id: row.id,
-                                values: { status: 'approved', resolved_by: user?.id, resolved_at: new Date().toISOString() },
+                                onSuccess: () => toast.success('Выполнено'),
+                                onError: (e) => toast.error(humanizeError(e)),
                               },
-                              { onSuccess: () => toast.success('Согласовано'), onError: (e) => toast.error(humanizeError(e)) },
                             )
                           }
                         />
-                        <IconButton
-                          icon={X}
-                          label="Отклонить"
-                          onClick={() =>
-                            mut.update.mutate(
-                              {
-                                id: row.id,
-                                values: { status: 'rejected', resolved_by: user?.id, resolved_at: new Date().toISOString() },
-                              },
-                              { onSuccess: () => toast.success('Отклонено'), onError: (e) => toast.error(humanizeError(e)) },
-                            )
-                          }
-                        />
-                      </>
-                    ) : null}
+                      ) : null}
+                      <IconButton
+                        icon={Trash2}
+                        label="Удалить"
+                        variant="destructive"
+                        onClick={() =>
+                          mut.softDelete.mutate(row.id, {
+                            onSuccess: () => toast.success('Удалено'),
+                            onError: (e) => toast.error(humanizeError(e)),
+                          })
+                        }
+                      />
+                    </div>
                   </div>
-                </div>
-                {row.details ? <p className="whitespace-pre-wrap text-sm">{row.details}</p> : null}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  {row.details ? <p className="whitespace-pre-wrap text-sm">{row.details}</p> : null}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <ListPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        </>
       )}
 
       <Dialog
@@ -153,7 +160,7 @@ export function RequestsPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Новая заявка</DialogTitle>
+            <DialogTitle>Новая задача</DialogTitle>
           </DialogHeader>
           <Field label="Объект">
             <Select value={formObjectId || undefined} onValueChange={setFormObjectId}>
@@ -169,13 +176,13 @@ export function RequestsPage() {
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Что нужно">
+          <Field label="Что сделать">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
-          <Field label="Список позиций">
+          <Field label="Подробности">
             <Textarea value={details} onChange={(e) => setDetails(e.target.value)} />
           </Field>
-          <Field label="Нужно к">
+          <Field label="Срок">
             <DatePicker value={needBy} onChange={setNeedBy} />
           </Field>
           <DialogFooter>
@@ -191,7 +198,7 @@ export function RequestsPage() {
                   },
                   {
                     onSuccess: () => {
-                      toast.success('Заявка создана')
+                      toast.success('Задача создана')
                       setCreateOpen(false)
                       resetForm()
                     },
@@ -200,7 +207,7 @@ export function RequestsPage() {
                 )
               }
             >
-              Отправить
+              Создать
             </Button>
           </DialogFooter>
         </DialogContent>

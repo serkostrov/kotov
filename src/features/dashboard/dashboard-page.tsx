@@ -5,7 +5,7 @@ import { DualProgress } from '@/components/dual-progress'
 import { EmptyState, ErrorState } from '@/components/empty-state'
 import { ProfitLine } from '@/components/money'
 import { PageHeader } from '@/components/page-header'
-import { ObjectStatusBadge, RequestStatusBadge, ToolStatusBadge } from '@/components/status-badge'
+import { ObjectStatusBadge, ToolStatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,7 +18,7 @@ import { canSeeEconomics } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 
 export function DashboardPage() {
-  const { roles } = useAuth()
+  const { roles, user } = useAuth()
   const { data, isLoading, isError, error, refetch } = useDashboard()
   const requests = useRequestMutations()
   const showEco = canSeeEconomics(roles)
@@ -100,7 +100,7 @@ export function DashboardPage() {
               <Link to="/objects">Все объекты</Link>
             </Button>
           </CardHeader>
-          <CardContent className="grid gap-2.5">
+          <CardContent className="grid max-h-[min(28rem,55vh)] gap-2.5 overflow-y-auto overscroll-contain pr-1">
             {data.objectsInWork.length === 0 ? (
               <EmptyState title="Нет активных объектов" description="Создайте объект, чтобы появилась сводка." />
             ) : (
@@ -170,51 +170,48 @@ export function DashboardPage() {
           </Card>
 
           <Card className="animate-rise" style={{ animationDelay: '200ms' }}>
-            <CardHeader>
-              <CardTitle>Новые заявки</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle>Открытые задачи</CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/requests">Все</Link>
+              </Button>
             </CardHeader>
             <CardContent className="grid gap-2.5">
               {data.requests.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Новых заявок нет.</p>
+                <p className="text-sm text-muted-foreground">Открытых задач нет.</p>
               ) : (
                 data.requests.map((req) => (
                   <div key={req.id} className="rounded-xl border border-border/70 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{req.title}</p>
-                        <p className="truncate text-xs text-muted-foreground">{req.object?.name}</p>
-                      </div>
-                      <RequestStatusBadge status={req.status} />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{req.title}</p>
+                      <p className="truncate text-xs text-muted-foreground">{req.object?.name}</p>
                     </div>
                     <div className="mt-2.5 flex gap-2">
                       <Button
                         size="sm"
                         onClick={() =>
-                          requests.update.mutate(
-                            { id: req.id, values: { status: 'approved', resolved_at: new Date().toISOString() } },
+                          requests.complete.mutate(
+                            { id: req.id, userId: user?.id },
                             {
                               onError: (e) => toast.error(humanizeError(e)),
-                              onSuccess: () => toast.success('Согласовано'),
+                              onSuccess: () => toast.success('Выполнено'),
                             },
                           )
                         }
                       >
-                        Согласовать
+                        Выполнить
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() =>
-                          requests.update.mutate(
-                            { id: req.id, values: { status: 'rejected', resolved_at: new Date().toISOString() } },
-                            {
-                              onError: (e) => toast.error(humanizeError(e)),
-                              onSuccess: () => toast.success('Отклонено'),
-                            },
-                          )
+                          requests.softDelete.mutate(req.id, {
+                            onError: (e) => toast.error(humanizeError(e)),
+                            onSuccess: () => toast.success('Удалено'),
+                          })
                         }
                       >
-                        Отклонить
+                        Удалить
                       </Button>
                     </div>
                   </div>

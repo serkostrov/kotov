@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Download } from 'lucide-react'
 import { DatePicker } from '@/components/date-picker'
 import { EmptyState, ErrorState } from '@/components/empty-state'
 import { FilterBar, FilterStat } from '@/components/filter-bar'
 import { IconButton } from '@/components/icon-button'
+import { ListPagination, useListPaging } from '@/components/list-pagination'
 import { Money } from '@/components/money'
 import { PageHeader } from '@/components/page-header'
 import { Card, CardContent } from '@/components/ui/card'
@@ -24,18 +25,25 @@ export function ExpensesPage() {
   const [authorId, setAuthorId] = useState<string | 'all'>('all')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const { page, setPage, pageSize, setPageSize } = useListPaging(`${objectId}:${categoryId}:${authorId}:${from}:${to}`)
 
-  const expenses = useExpenses({ objectId, categoryId, authorId, from: from || undefined, to: to || undefined, pageSize: 200 })
+  const expenses = useExpenses({
+    objectId,
+    categoryId,
+    authorId,
+    from: from || undefined,
+    to: to || undefined,
+    page,
+    pageSize,
+  })
   const objects = useObjects({ pageSize: 200 })
   const cats = useExpenseCategories()
   const people = useProfiles()
   const names = useProfileMap()
 
-  const total = useMemo(
-    () => (expenses.data?.rows ?? []).reduce((s, r) => s + Number(r.amount), 0),
-    [expenses.data],
-  )
-  const count = expenses.data?.rows.length ?? 0
+  const pageTotal = expenses.data?.pageTotal ?? 0
+  const total = expenses.data?.count ?? 0
+  const list = expenses.data?.rows ?? []
 
   if (expenses.isError) return <ErrorState message={humanizeError(expenses.error)} onRetry={() => void expenses.refetch()} />
 
@@ -51,7 +59,7 @@ export function ExpensesPage() {
             size="default"
             onClick={() => {
               const csv = toCsv(
-                (expenses.data?.rows ?? []).map((r) => ({
+                list.map((r) => ({
                   date: r.expense_date,
                   object: r.object?.name,
                   category: r.category?.name,
@@ -82,8 +90,8 @@ export function ExpensesPage() {
 
       <FilterBar
         trailing={
-          <FilterStat label="Итог">
-            <Money value={total} />
+          <FilterStat label="Итог стр.">
+            <Money value={pageTotal} />
           </FilterStat>
         }
       >
@@ -132,15 +140,15 @@ export function ExpensesPage() {
 
       {expenses.isLoading ? (
         <Skeleton className="h-40 rounded-xl" />
-      ) : count === 0 ? (
+      ) : list.length === 0 ? (
         <EmptyState title="Расходов нет" description="Измените фильтры или добавьте расход в карточке объекта." />
       ) : (
         <>
           <p className="mb-2 text-xs text-muted-foreground">
-            Найдено: <span className="font-medium text-foreground">{count}</span>
+            Найдено: <span className="font-medium text-foreground">{total}</span>
           </p>
           <div className="grid gap-1.5 md:hidden">
-            {(expenses.data?.rows ?? []).map((row) => (
+            {list.map((row) => (
               <Link key={row.id} to={`/objects/${row.object_id}?tab=expenses`} className="block">
                 <Card className="transition-colors hover:border-primary/30 hover:bg-accent/30">
                   <CardContent className="space-y-1 p-3">
@@ -173,11 +181,8 @@ export function ExpensesPage() {
                 </tr>
               </thead>
               <tbody>
-                {(expenses.data?.rows ?? []).map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b border-border/60 last:border-0 hover:bg-muted/30"
-                  >
+                {list.map((row) => (
+                  <tr key={row.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
                     <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{formatDate(row.expense_date)}</td>
                     <td className="px-3 py-2">
                       <Link to={`/objects/${row.object_id}?tab=expenses`} className="font-medium hover:text-primary hover:underline">
@@ -195,6 +200,13 @@ export function ExpensesPage() {
               </tbody>
             </table>
           </div>
+          <ListPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         </>
       )}
     </div>

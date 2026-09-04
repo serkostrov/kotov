@@ -1,14 +1,26 @@
-﻿import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Plus, Search } from 'lucide-react'
+import { Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { DatePicker } from '@/components/date-picker'
 import { DateTimePicker } from '@/components/date-time-picker'
 import { BackLink } from '@/components/back-link'
 import { EmptyState, ErrorState } from '@/components/empty-state'
 import { FilterBar } from '@/components/filter-bar'
+import { IconButton } from '@/components/icon-button'
+import { ListPagination, useListPaging } from '@/components/list-pagination'
 import { Field, PageHeader } from '@/components/page-header'
 import { ToolStatusBadge } from '@/components/status-badge'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -26,8 +38,21 @@ import { TOOL_MOVEMENT_LABELS, TOOL_STATUS_LABELS } from '@/lib/dictionaries'
 import { humanizeError } from '@/lib/errors'
 import { formatDate, formatDateTime, formatMoney, nowTimeISO, todayISO } from '@/lib/format'
 import { canWriteOffTools, isOwner } from '@/lib/roles'
+import { commonMovements } from '@/lib/tool-actions'
+
+type ToolListRow = NonNullable<ReturnType<typeof useTools>['data']>['rows'][number]
+
+type ToolFormValues = {
+  name: string
+  inventory_number?: string | null
+  category_id?: string | null
+  purchase_price?: number | null
+  purchase_date?: string | null
+  comment?: string | null
+}
 
 export function ToolsPage() {
+  const navigate = useNavigate()
   const { roles } = useAuth()
   const owner = isOwner(roles)
   const [search, setSearch] = useState('')
@@ -36,12 +61,29 @@ export function ToolsPage() {
   const [selected, setSelected] = useState<string[]>([])
   const [moveType, setMoveType] = useState<ToolMovementType | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [editing, setEditing] = useState<ToolListRow | null>(null)
+  const [deleting, setDeleting] = useState<ToolListRow | null>(null)
+  const { page, setPage, pageSize, setPageSize } = useListPaging(`${search}:${status}:${categoryId}`)
 
-  const tools = useTools({ search: search.trim() || undefined, status, categoryId })
+  const tools = useTools({ search: search.trim() || undefined, status, categoryId, page, pageSize })
   const categories = useToolCategories()
   const objects = useObjects({ pageSize: 200 })
   const profiles = useProfiles()
   const mut = useToolMutations()
+
+  const selectedRows = useMemo(
+    () => (tools.data?.rows ?? []).filter((t) => selected.includes(t.id)),
+    [tools.data?.rows, selected],
+  )
+  const allowed = useMemo(
+    () => commonMovements(selectedRows.map((t) => t.status)),
+    [selectedRows],
+  )
+  const canWriteOff = canWriteOffTools(roles)
+
+  const stopRowNav = (e: React.MouseEvent) => {
+    e.stopPropagation()
+  }
 
   if (tools.isError) return <ErrorState message={humanizeError(tools.error)} onRetry={() => void tools.refetch()} />
 
@@ -99,18 +141,58 @@ export function ToolsPage() {
       </FilterBar>
 
       {selected.length > 0 ? (
-        <div className="mb-3 flex flex-wrap gap-2 rounded-lg border bg-card p-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2">
           <span className="self-center px-2 text-sm">{selected.length} выбрано</span>
-          <Button size="sm" onClick={() => setMoveType('issue')}>Выдать</Button>
-          <Button size="sm" variant="outline" onClick={() => setMoveType('return')}>Вернуть</Button>
-          <Button size="sm" variant="outline" onClick={() => setMoveType('to_repair')}>В ремонт</Button>
-          <Button size="sm" variant="outline" onClick={() => setMoveType('from_repair')}>Из ремонта</Button>
-          {canWriteOffTools(roles) ? (
-            <>
-              <Button size="sm" variant="outline" onClick={() => setMoveType('loss')}>Утеря</Button>
-              <Button size="sm" variant="destructive" onClick={() => setMoveType('write_off')}>Списать</Button>
-            </>
+          {allowed.has('issue') ? (
+            <Button size="sm" onClick={() => setMoveType('issue')}>
+              Выдать
+            </Button>
           ) : null}
+          {allowed.has('return') ? (
+            <Button size="sm" variant="outline" onClick={() => setMoveType('return')}>
+              Вернуть
+            </Button>
+          ) : null}
+          {allowed.has('to_repair') ? (
+            <Button size="sm" variant="outline" onClick={() => setMoveType('to_repair')}>
+              В ремонт
+            </Button>
+          ) : null}
+          {allowed.has('from_repair') ? (
+            <Button size="sm" variant="outline" onClick={() => setMoveType('from_repair')}>
+              Из ремонта
+            </Button>
+          ) : null}
+          {allowed.has('transfer') ? (
+            <Button size="sm" variant="outline" onClick={() => setMoveType('transfer')}>
+              Переместить
+            </Button>
+          ) : null}
+          {canWriteOff && allowed.has('loss') ? (
+            <Button size="sm" variant="outline" onClick={() => setMoveType('loss')}>
+              Утеря
+            </Button>
+          ) : null}
+          {canWriteOff && allowed.has('write_off') ? (
+            <Button size="sm" variant="destructive" onClick={() => setMoveType('write_off')}>
+              Списать
+            </Button>
+          ) : null}
+          {!(
+            allowed.has('issue') ||
+            allowed.has('return') ||
+            allowed.has('to_repair') ||
+            allowed.has('from_repair') ||
+            allowed.has('transfer') ||
+            (canWriteOff && (allowed.has('loss') || allowed.has('write_off')))
+          ) ? (
+            <span className="px-2 text-xs text-muted-foreground">
+              Для выбранных статусов общих действий нет — выберите позиции с одним статусом.
+            </span>
+          ) : null}
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSelected([])}>
+            Сбросить
+          </Button>
         </div>
       ) : null}
 
@@ -121,19 +203,38 @@ export function ToolsPage() {
       ) : (
         <div className="grid gap-2 md:hidden">
           {(tools.data?.rows ?? []).map((tool) => (
-            <Card key={tool.id}>
+            <Card
+              key={tool.id}
+              className="cursor-pointer transition-colors hover:bg-muted/20"
+              onClick={() => navigate(`/tools/${tool.id}`)}
+            >
               <CardContent className="flex items-start gap-3 p-3">
-                <Checkbox
-                  checked={selected.includes(tool.id)}
-                  onCheckedChange={(v) =>
-                    setSelected((prev) => (v ? [...prev, tool.id] : prev.filter((id) => id !== tool.id)))
-                  }
-                />
-                <Link to={`/tools/${tool.id}`} className="min-w-0 flex-1">
+                <div onClick={stopRowNav}>
+                  <Checkbox
+                    checked={selected.includes(tool.id)}
+                    onCheckedChange={(v) =>
+                      setSelected((prev) => (v ? [...prev, tool.id] : prev.filter((id) => id !== tool.id)))
+                    }
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
                   <p className="font-medium">{tool.name}</p>
-                  <p className="text-xs text-muted-foreground">{tool.inventory_number ?? 'без номера'} · {tool.object?.name ?? 'склад'}</p>
-                </Link>
+                  <p className="text-xs text-muted-foreground">
+                    {tool.inventory_number ?? 'без номера'} · {tool.object?.name ?? 'склад'}
+                  </p>
+                </div>
                 <ToolStatusBadge status={tool.status} />
+                {owner ? (
+                  <div className="flex shrink-0 gap-1" onClick={stopRowNav}>
+                    <IconButton icon={Pencil} label="Изменить" onClick={() => setEditing(tool)} />
+                    <IconButton
+                      icon={Trash2}
+                      label="Удалить"
+                      variant="destructive"
+                      onClick={() => setDeleting(tool)}
+                    />
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           ))}
@@ -152,12 +253,25 @@ export function ToolsPage() {
                 <th className="px-3 py-3 font-medium">Статус</th>
                 <th className="px-3 py-3 font-medium">Объект</th>
                 <th className="px-3 py-3 font-medium">Держатель</th>
+                {owner ? <th className="w-20 px-3 py-3 font-medium" /> : null}
               </tr>
             </thead>
             <tbody>
               {(tools.data?.rows ?? []).map((tool) => (
-                <tr key={tool.id} className="border-b last:border-0">
-                  <td className="px-3 py-2">
+                <tr
+                  key={tool.id}
+                  role="link"
+                  tabIndex={0}
+                  className="group cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                  onClick={() => navigate(`/tools/${tool.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      navigate(`/tools/${tool.id}`)
+                    }
+                  }}
+                >
+                  <td className="px-3 py-2" onClick={stopRowNav}>
                     <Checkbox
                       checked={selected.includes(tool.id)}
                       onCheckedChange={(v) =>
@@ -165,11 +279,7 @@ export function ToolsPage() {
                       }
                     />
                   </td>
-                  <td className="px-3 py-2">
-                    <Link to={`/tools/${tool.id}`} className="font-medium hover:underline">
-                      {tool.name}
-                    </Link>
-                  </td>
+                  <td className="px-3 py-2 font-medium">{tool.name}</td>
                   <td className="px-3 py-2 font-mono text-xs">{tool.inventory_number ?? '—'}</td>
                   <td className="px-3 py-2">{tool.category?.name ?? '—'}</td>
                   <td className="px-3 py-2">
@@ -177,11 +287,34 @@ export function ToolsPage() {
                   </td>
                   <td className="px-3 py-2">{tool.object?.name ?? '—'}</td>
                   <td className="px-3 py-2">{tool.holder?.full_name ?? '—'}</td>
+                  {owner ? (
+                    <td className="px-2 py-2" onClick={stopRowNav}>
+                      <div className="flex justify-end gap-1 opacity-70 transition group-hover:opacity-100">
+                        <IconButton icon={Pencil} label="Изменить" onClick={() => setEditing(tool)} />
+                        <IconButton
+                          icon={Trash2}
+                          label="Удалить"
+                          variant="destructive"
+                          onClick={() => setDeleting(tool)}
+                        />
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      ) : null}
+
+      {!tools.isLoading && (tools.data?.count ?? 0) > 0 ? (
+        <ListPagination
+          page={page}
+          pageSize={pageSize}
+          total={tools.data?.count ?? 0}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       ) : null}
 
       {moveType ? (
@@ -204,10 +337,12 @@ export function ToolsPage() {
         />
       ) : null}
 
-      <ToolCreateDialog
+      <ToolFormDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
+        mode="create"
         categories={categories.data ?? []}
+        pending={mut.create.isPending}
         onSubmit={(values) =>
           mut.create.mutate(values, {
             onSuccess: () => {
@@ -218,6 +353,67 @@ export function ToolsPage() {
           })
         }
       />
+
+      <ToolFormDialog
+        open={Boolean(editing)}
+        onOpenChange={(open) => {
+          if (!open) setEditing(null)
+        }}
+        mode="edit"
+        categories={categories.data ?? []}
+        defaults={editing}
+        pending={mut.update.isPending}
+        onSubmit={(values) => {
+          if (!editing) return
+          mut.update.mutate(
+            { id: editing.id, values },
+            {
+              onSuccess: () => {
+                toast.success('Сохранено')
+                setEditing(null)
+              },
+              onError: (e) => toast.error(humanizeError(e)),
+            },
+          )
+        }}
+      />
+
+      <AlertDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить инструмент?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleting
+                ? `«${deleting.name}» будет скрыт из реестра. История движений сохранится.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mut.softDelete.isPending}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={mut.softDelete.isPending}
+              onClick={() => {
+                if (!deleting) return
+                mut.softDelete.mutate(deleting.id, {
+                  onSuccess: () => {
+                    toast.success('Инструмент удалён')
+                    setDeleting(null)
+                    setSelected((prev) => prev.filter((id) => id !== deleting.id))
+                  },
+                  onError: (e) => toast.error(humanizeError(e)),
+                })
+              }}
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -227,6 +423,7 @@ function MoveDialog({
   toolIds,
   objects,
   people,
+  defaultObjectId,
   onClose,
   onSubmit,
 }: {
@@ -234,6 +431,7 @@ function MoveDialog({
   toolIds: string[]
   objects: { id: string; name: string }[]
   people: { id: string; full_name: string }[]
+  defaultObjectId?: string | null
   onClose: () => void
   onSubmit: (payload: {
     toolIds: string[]
@@ -244,7 +442,7 @@ function MoveDialog({
     movedAt?: string | null
   }) => void
 }) {
-  const [objectId, setObjectId] = useState('')
+  const [objectId, setObjectId] = useState(defaultObjectId ?? '')
   const [holderId, setHolderId] = useState('')
   const [comment, setComment] = useState('')
   const [movedDate, setMovedDate] = useState(todayISO())
@@ -308,7 +506,7 @@ function MoveDialog({
               onSubmit({
                 toolIds,
                 movementType: type,
-                objectId: objectId || null,
+                objectId: objectId || defaultObjectId || null,
                 holderId: holderId || null,
                 comment,
                 movedAt: movedDate && movedTime ? `${movedDate}T${movedTime}:00+03:00` : null,
@@ -323,23 +521,22 @@ function MoveDialog({
   )
 }
 
-function ToolCreateDialog({
+function ToolFormDialog({
   open,
   onOpenChange,
+  mode,
   categories,
+  defaults,
+  pending,
   onSubmit,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  mode: 'create' | 'edit'
   categories: { id: string; name: string }[]
-  onSubmit: (values: {
-    name: string
-    inventory_number?: string | null
-    category_id?: string | null
-    purchase_price?: number | null
-    purchase_date?: string | null
-    comment?: string | null
-  }) => void
+  defaults?: Partial<ToolFormValues> | null
+  pending?: boolean
+  onSubmit: (values: ToolFormValues) => void
 }) {
   const [name, setName] = useState('')
   const [inv, setInv] = useState('')
@@ -348,11 +545,21 @@ function ToolCreateDialog({
   const [purchaseDate, setPurchaseDate] = useState('')
   const [comment, setComment] = useState('')
 
+  useEffect(() => {
+    if (!open) return
+    setName(defaults?.name ?? '')
+    setInv(defaults?.inventory_number ?? '')
+    setCategoryId(defaults?.category_id ?? '')
+    setPrice(defaults?.purchase_price != null ? String(defaults.purchase_price) : '')
+    setPurchaseDate(defaults?.purchase_date ?? '')
+    setComment(defaults?.comment ?? '')
+  }, [open, defaults])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Новый инструмент</DialogTitle>
+          <DialogTitle>{mode === 'create' ? 'Новый инструмент' : 'Изменить инструмент'}</DialogTitle>
         </DialogHeader>
         <Field label="Название">
           <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -388,15 +595,15 @@ function ToolCreateDialog({
         </Field>
         <DialogFooter>
           <Button
-            disabled={!name}
+            disabled={!name.trim() || pending}
             onClick={() =>
               onSubmit({
-                name,
-                inventory_number: inv || null,
+                name: name.trim(),
+                inventory_number: inv.trim() || null,
                 category_id: categoryId || null,
                 purchase_price: price ? Number(price) : null,
                 purchase_date: purchaseDate || null,
-                comment: comment || null,
+                comment: comment.trim() || null,
               })
             }
           >
@@ -409,66 +616,152 @@ function ToolCreateDialog({
 }
 
 export function ToolCardPage() {
+  const navigate = useNavigate()
   const { id } = useParams()
+  const { roles } = useAuth()
+  const owner = isOwner(roles)
+  const canWriteOff = canWriteOffTools(roles)
   const tool = useTool(id)
   const movements = useToolMovements(id)
   const names = useProfileMap()
+  const objects = useObjects({ pageSize: 200 })
+  const profiles = useProfiles()
+  const categories = useToolCategories()
+  const mut = useToolMutations()
+  const [moveType, setMoveType] = useState<ToolMovementType | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   if (tool.isLoading) return <Skeleton className="h-48" />
   if (tool.isError) return <ErrorState message={humanizeError(tool.error)} onRetry={() => void tool.refetch()} />
   if (!tool.data) return <EmptyState title="Инструмент не найден" />
 
   const item = tool.data
+  const allowed = commonMovements([item.status])
+  const actionButtons: { type: ToolMovementType; label: string; variant?: 'default' | 'outline' | 'destructive' }[] = []
+  if (allowed.has('issue')) actionButtons.push({ type: 'issue', label: 'Выдать' })
+  if (allowed.has('return')) actionButtons.push({ type: 'return', label: 'Вернуть', variant: 'outline' })
+  if (allowed.has('transfer')) actionButtons.push({ type: 'transfer', label: 'Переместить', variant: 'outline' })
+  if (allowed.has('to_repair')) actionButtons.push({ type: 'to_repair', label: 'В ремонт', variant: 'outline' })
+  if (allowed.has('from_repair')) actionButtons.push({ type: 'from_repair', label: 'Из ремонта', variant: 'outline' })
+  if (canWriteOff && allowed.has('loss')) actionButtons.push({ type: 'loss', label: 'Утеря', variant: 'outline' })
+  if (canWriteOff && allowed.has('write_off')) {
+    actionButtons.push({ type: 'write_off', label: 'Списать', variant: 'destructive' })
+  }
+
   return (
     <div className="space-y-5">
       <div>
-        <BackLink to="/tools" label="К инструменту" />
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">{item.name}</h1>
-            <p className="text-sm text-muted-foreground">{item.inventory_number ?? 'без инвентарного номера'}</p>
-          </div>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <BackLink to="/tools" label="К реестру" className="mb-0" />
           <ToolStatusBadge status={item.status} />
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              {item.inventory_number ? `Инв. № ${item.inventory_number}` : 'без инвентарного номера'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {owner ? (
+              <>
+                <IconButton icon={Pencil} label="Изменить" onClick={() => setEditOpen(true)} />
+                <IconButton
+                  icon={Trash2}
+                  label="Удалить"
+                  variant="destructive"
+                  onClick={() => setDeleteOpen(true)}
+                />
+              </>
+            ) : null}
+            {actionButtons.map((a) => (
+              <Button key={a.type} size="sm" variant={a.variant ?? 'default'} onClick={() => setMoveType(a.type)}>
+                {a.label}
+              </Button>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Meta label="Статус" value={TOOL_STATUS_LABELS[item.status]} />
         <Meta label="Категория" value={item.category?.name ?? '—'} />
-        <Meta label="Объект" value={item.object?.name ?? '—'} />
+        <Meta label="Сейчас на объекте" value={item.object?.name ?? 'склад / не на объекте'} />
         <Meta label="Держатель" value={item.holder?.full_name ?? '—'} />
-        <Meta label="Цена" value={item.purchase_price ? formatMoney(item.purchase_price) : '—'} />
+        <Meta label="Цена покупки" value={item.purchase_price != null ? formatMoney(item.purchase_price) : '—'} />
         <Meta label="Дата покупки" value={formatDate(item.purchase_date)} />
+        <Meta label="Создан" value={formatDateTime(item.created_at)} />
+        <Meta label="Обновлён" value={formatDateTime(item.updated_at)} />
+        {item.created_by ? (
+          <Meta label="Кто завёл" value={names.data?.get(item.created_by)?.full_name ?? '—'} />
+        ) : null}
       </div>
+
+      {item.comment ? (
+        <div className="rounded-xl border bg-card p-3.5">
+          <p className="text-xs text-muted-foreground">Комментарий</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm">{item.comment}</p>
+        </div>
+      ) : null}
+
       <div>
-        <h2 className="mb-2 text-base font-semibold">История движений</h2>
-        {(movements.data ?? []).length === 0 ? (
-          <EmptyState title="Движений ещё не было" />
+        <h2 className="mb-2 text-base font-semibold">История: где был и когда</h2>
+        {movements.isLoading ? (
+          <Skeleton className="h-32" />
+        ) : (movements.data ?? []).length === 0 ? (
+          <EmptyState title="Движений ещё не было" description="Выдача, возврат и ремонт появятся здесь автоматически." />
         ) : (
           <div className="overflow-hidden rounded-xl border bg-card">
-            <table className="w-full text-sm">
+            <div className="divide-y divide-border/70 md:hidden">
+              {(movements.data ?? []).map((m) => (
+                <div key={m.id} className="space-y-1 px-3.5 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[13px] font-medium">{TOOL_MOVEMENT_LABELS[m.movement_type]}</p>
+                    <p className="shrink-0 text-xs text-muted-foreground">{formatDateTime(m.moved_at)}</p>
+                  </div>
+                  <p className="text-sm">{formatMovementPlace(m)}</p>
+                  {(m.from_holder || m.to_holder) ? (
+                    <p className="text-xs text-muted-foreground">
+                      {[m.from_holder?.full_name, m.to_holder?.full_name].filter(Boolean).join(' → ') || '—'}
+                    </p>
+                  ) : null}
+                  {m.comment ? <p className="text-xs text-muted-foreground">{m.comment}</p> : null}
+                  {m.created_by ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      оформил: {names.data?.get(m.created_by)?.full_name ?? '—'}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <table className="hidden w-full text-sm md:table">
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Тип</th>
-                  <th className="px-3 py-2 font-medium">Дата</th>
-                  <th className="px-3 py-2 font-medium">Объект</th>
-                  <th className="px-3 py-2 font-medium">От → кому</th>
+                  <th className="px-3 py-2 font-medium">Когда</th>
+                  <th className="px-3 py-2 font-medium">Событие</th>
+                  <th className="px-3 py-2 font-medium">Где</th>
+                  <th className="px-3 py-2 font-medium">Держатель</th>
                   <th className="px-3 py-2 font-medium">Комментарий</th>
                 </tr>
               </thead>
               <tbody>
                 {(movements.data ?? []).map((m) => (
                   <tr key={m.id} className="border-b last:border-0">
-                    <td className="px-3 py-2">{TOOL_MOVEMENT_LABELS[m.movement_type]}</td>
-                    <td className="px-3 py-2">{formatDateTime(m.moved_at)}</td>
-                    <td className="px-3 py-2">{m.object?.name ?? '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{formatDateTime(m.moved_at)}</td>
+                    <td className="px-3 py-2 font-medium">{TOOL_MOVEMENT_LABELS[m.movement_type]}</td>
+                    <td className="px-3 py-2">{formatMovementPlace(m)}</td>
                     <td className="px-3 py-2">
-                      {m.from_holder?.full_name ?? '—'} → {m.to_holder?.full_name ?? '—'}
+                      {m.from_holder?.full_name || m.to_holder?.full_name
+                        ? `${m.from_holder?.full_name ?? '—'} → ${m.to_holder?.full_name ?? '—'}`
+                        : '—'}
+                      {m.created_by ? (
+                        <span className="block text-xs text-muted-foreground">
+                          {names.data?.get(m.created_by)?.full_name}
+                        </span>
+                      ) : null}
                     </td>
-                    <td className="px-3 py-2">
-                      {m.comment ?? '—'}
-                      <span className="block text-xs text-muted-foreground">
-                        {m.created_by ? names.data?.get(m.created_by)?.full_name : ''}
-                      </span>
-                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{m.comment ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -476,8 +769,112 @@ export function ToolCardPage() {
           </div>
         )}
       </div>
+
+      {moveType ? (
+        <MoveDialog
+          type={moveType}
+          toolIds={[item.id]}
+          objects={objects.data?.rows ?? []}
+          people={profiles.data ?? []}
+          defaultObjectId={item.current_object_id}
+          onClose={() => setMoveType(null)}
+          onSubmit={(payload) =>
+            mut.move.mutate(payload, {
+              onSuccess: () => {
+                toast.success('Движение оформлено')
+                setMoveType(null)
+                void tool.refetch()
+                void movements.refetch()
+              },
+              onError: (e) => toast.error(humanizeError(e)),
+            })
+          }
+        />
+      ) : null}
+
+      {owner ? (
+        <>
+          <ToolFormDialog
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            mode="edit"
+            categories={categories.data ?? []}
+            defaults={item}
+            pending={mut.update.isPending}
+            onSubmit={(values) =>
+              mut.update.mutate(
+                { id: item.id, values },
+                {
+                  onSuccess: () => {
+                    toast.success('Сохранено')
+                    setEditOpen(false)
+                    void tool.refetch()
+                  },
+                  onError: (e) => toast.error(humanizeError(e)),
+                },
+              )
+            }
+          />
+          <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Удалить инструмент?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  «{item.name}» будет скрыт из реестра. История движений сохранится.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={mut.softDelete.isPending}>Отмена</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={mut.softDelete.isPending}
+                  onClick={() =>
+                    mut.softDelete.mutate(item.id, {
+                      onSuccess: () => {
+                        toast.success('Инструмент удалён')
+                        navigate('/tools')
+                      },
+                      onError: (e) => toast.error(humanizeError(e)),
+                    })
+                  }
+                >
+                  Удалить
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      ) : null}
     </div>
   )
+}
+
+function formatMovementPlace(m: {
+  movement_type: ToolMovementType
+  object?: { name: string } | null
+  from_object?: { name: string } | null
+}) {
+  const to = m.object?.name
+  const from = m.from_object?.name
+  switch (m.movement_type) {
+    case 'issue':
+    case 'extra_delivery':
+      return to ? `на объект «${to}»` : 'на объект'
+    case 'return':
+      return from || to ? `с объекта «${from ?? to}» → склад` : 'возврат на склад'
+    case 'transfer':
+      if (from && to) return `«${from}» → «${to}»`
+      return to ? `на объект «${to}»` : 'перемещение'
+    case 'to_repair':
+      return from || to ? `в ремонт${from || to ? ` (с «${from ?? to}»)` : ''}` : 'в ремонт'
+    case 'from_repair':
+      return 'из ремонта → склад'
+    case 'loss':
+      return from || to ? `утеря${from || to ? ` (на «${from ?? to}»)` : ''}` : 'утеря'
+    case 'write_off':
+      return from || to ? `списание${from || to ? ` (с «${from ?? to}»)` : ''}` : 'списание'
+    default:
+      return to ?? from ?? '—'
+  }
 }
 
 function Meta({ label, value }: { label: string; value: string }) {

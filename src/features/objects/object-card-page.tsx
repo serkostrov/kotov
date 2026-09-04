@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -21,13 +21,13 @@ import {
   Plus,
   Trash2,
   Upload,
-  X,
 } from 'lucide-react'
 import { DualProgress } from '@/components/dual-progress'
 import { DatePicker } from '@/components/date-picker'
 import { BackLink } from '@/components/back-link'
 import { EmptyState, ErrorState } from '@/components/empty-state'
 import { IconButton } from '@/components/icon-button'
+import { ListPagination, useListPaging } from '@/components/list-pagination'
 import { Money } from '@/components/money'
 import { Field } from '@/components/page-header'
 import { ObjectStatusBadge, RequestStatusBadge, StageStatusBadge, ToolStatusBadge } from '@/components/status-badge'
@@ -62,6 +62,7 @@ import {
   useObjectProgress,
   useObjectStages,
   useProfiles,
+  useContacts,
   useStageTemplates,
 } from '@/hooks/use-objects'
 import { useAttachments, useExpenseMutations, useExpenses, useMaterialRequests, useRequestMutations, useSignedUrl } from '@/hooks/use-finance'
@@ -91,7 +92,7 @@ const TABS = [
   { value: 'media', label: 'Фото и видео' },
   { value: 'docs', label: 'Документы' },
   { value: 'expenses', label: 'Расходы' },
-  { value: 'requests', label: 'Заявки' },
+  { value: 'requests', label: 'Задачи' },
   { value: 'members', label: 'Участники' },
   { value: 'history', label: 'История' },
 ] as const
@@ -118,6 +119,7 @@ export function ObjectCardPage() {
   const docInputRef = useRef<HTMLInputElement>(null)
   const client = useQueryClient()
   const profiles = useProfiles()
+  const contacts = useContacts()
   const navigate = useNavigate()
 
   const liveProgress = useMemo(() => {
@@ -204,7 +206,7 @@ export function ObjectCardPage() {
       {tab === 'requests' ? (
         <Button onClick={() => setRequestOpen(true)}>
           <Plus />
-          Заявка
+          Задача
         </Button>
       ) : null}
     </>
@@ -341,7 +343,7 @@ export function ObjectCardPage() {
           <ExpensesTab objectId={id} createOpen={expenseOpen} onCreateOpenChange={setExpenseOpen} />
         </TabsContent>
         <TabsContent value="requests">
-          <RequestsTab objectId={id} owner={owner} createOpen={requestOpen} onCreateOpenChange={setRequestOpen} />
+          <RequestsTab objectId={id} createOpen={requestOpen} onCreateOpenChange={setRequestOpen} />
         </TabsContent>
         <TabsContent value="members">
           <MembersTab objectId={id} owner={owner} />
@@ -367,11 +369,12 @@ export function ObjectCardPage() {
             onOpenChange={setEditOpen}
             mode="edit"
             people={profiles.data ?? []}
+            contacts={contacts.data ?? []}
             defaults={object}
             pending={mutations.update.isPending}
             onSubmit={(values) =>
               mutations.update.mutate(
-                { id, values: toObjectPayload(values) },
+                { id, values: toObjectPayload(values, contacts.data ?? []) },
                 {
                   onSuccess: () => {
                     toast.success('Сохранено')
@@ -738,14 +741,18 @@ function ToolsTab({
 
   return (
     <div className="space-y-3">
-      {canMove && (tools.data ?? []).length > 0 ? (
+      {canMove && (tools.data ?? []).some((t) => t.status === 'on_object') ? (
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={() =>
               move.mutate(
-                { toolIds: (tools.data ?? []).map((t) => t.id), movementType: 'extra_delivery', objectId },
+                {
+                  toolIds: (tools.data ?? []).filter((t) => t.status === 'on_object').map((t) => t.id),
+                  movementType: 'extra_delivery',
+                  objectId,
+                },
                 { onSuccess: () => toast.success('Довоз отмечен'), onError: (e) => toast.error(humanizeError(e)) },
               )
             }
@@ -760,15 +767,15 @@ function ToolsTab({
         <div className="grid gap-2">
           {(tools.data ?? []).map((tool) => (
             <div key={tool.id} className="flex items-center justify-between gap-2 rounded-xl border bg-card p-3">
-              <div className="min-w-0">
+              <Link to={`/tools/${tool.id}`} className="min-w-0 flex-1 hover:underline">
                 <p className="truncate font-medium">{tool.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {tool.inventory_number ?? 'без номера'} · {tool.holder?.full_name ?? 'без держателя'}
                 </p>
-              </div>
+              </Link>
               <div className="flex items-center gap-2">
                 <ToolStatusBadge status={tool.status} />
-                {canMove ? (
+                {canMove && tool.status === 'on_object' ? (
                   <Button
                     size="sm"
                     variant="outline"
@@ -780,6 +787,23 @@ function ToolsTab({
                     }
                   >
                     Вернуть
+                  </Button>
+                ) : null}
+                {canMove && tool.status === 'on_object' ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      move.mutate(
+                        { toolIds: [tool.id], movementType: 'to_repair', objectId },
+                        {
+                          onSuccess: () => toast.success('Отправлен в ремонт'),
+                          onError: (e) => toast.error(humanizeError(e)),
+                        },
+                      )
+                    }
+                  >
+                    В ремонт
                   </Button>
                 ) : null}
               </div>
@@ -971,30 +995,42 @@ function ExpensesTab({
   createOpen: boolean
   onCreateOpenChange: (open: boolean) => void
 }) {
-  const expenses = useExpenses({ objectId, pageSize: 100 })
+  const { page, setPage, pageSize, setPageSize } = useListPaging(objectId)
+  const expenses = useExpenses({ objectId, page, pageSize })
   const cats = useExpenseCategories()
   const stages = useObjectStages(objectId)
   const create = useExpenseMutations().create
+  const list = expenses.data?.rows ?? []
+  const total = expenses.data?.count ?? 0
 
   return (
     <div className="space-y-2">
-      {(expenses.data?.rows ?? []).length === 0 ? (
+      {list.length === 0 ? (
         <EmptyState title="Расходов пока нет" />
       ) : (
-        <div className="grid gap-1.5">
-          {(expenses.data?.rows ?? []).map((row) => (
-            <div key={row.id} className="flex items-start justify-between gap-2 rounded-xl border bg-card px-3 py-2">
-              <div className="min-w-0">
-                <p className="text-[13px] font-medium">{row.category?.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatDate(row.expense_date)} · {row.stage?.name ?? 'Общие'} · {row.vendor ?? '—'}
-                </p>
-                {row.description ? <p className="mt-0.5 text-sm">{row.description}</p> : null}
+        <>
+          <div className="grid gap-1.5">
+            {list.map((row) => (
+              <div key={row.id} className="flex items-start justify-between gap-2 rounded-xl border bg-card px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium">{row.category?.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDate(row.expense_date)} · {row.stage?.name ?? 'Общие'} · {row.vendor ?? '—'}
+                  </p>
+                  {row.description ? <p className="mt-0.5 text-sm">{row.description}</p> : null}
+                </div>
+                <Money value={row.amount} />
               </div>
-              <Money value={row.amount} />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <ListPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        </>
       )}
       <ExpenseDialog
         open={createOpen}
@@ -1110,95 +1146,132 @@ function ExpenseDialog({
 
 function RequestsTab({
   objectId,
-  owner,
   createOpen,
   onCreateOpenChange,
 }: {
   objectId: string
-  owner: boolean
   createOpen: boolean
   onCreateOpenChange: (open: boolean) => void
 }) {
-  const rows = useMaterialRequests({ objectId })
+  const { user } = useAuth()
+  const [showDone, setShowDone] = useState(false)
+  const { page, setPage, pageSize, setPageSize } = useListPaging(`${objectId}:${showDone}`)
+  const rows = useMaterialRequests({ objectId, done: showDone, page, pageSize })
   const mut = useRequestMutations()
   const [title, setTitle] = useState('')
   const [details, setDetails] = useState('')
   const [needBy, setNeedBy] = useState('')
+  const list = rows.data?.rows ?? []
+  const total = rows.data?.count ?? 0
 
   return (
     <div className="space-y-2">
-      {(rows.data ?? []).length === 0 ? (
-        <EmptyState title="Заявок нет" />
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          variant={showDone ? 'default' : 'outline'}
+          onClick={() => setShowDone((v) => !v)}
+        >
+          Выполненные
+        </Button>
+      </div>
+      {list.length === 0 ? (
+        <EmptyState title={showDone ? 'Выполненных задач нет' : 'Открытых задач нет'} />
       ) : (
-        <div className="grid gap-1.5">
-          {(rows.data ?? []).map((row) => (
-            <div key={row.id} className="rounded-xl border bg-card px-3 py-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium">{row.title}</p>
-                  <p className="text-xs text-muted-foreground">нужно к {formatDate(row.need_by)}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <RequestStatusBadge status={row.status} />
-                  {owner && row.status === 'new' ? (
-                    <>
+        <>
+          <div className="grid gap-1.5">
+            {list.map((row) => (
+              <div key={row.id} className="rounded-xl border bg-card px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium">{row.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {row.need_by ? `к ${formatDate(row.need_by)}` : 'Без срока'}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {showDone ? <RequestStatusBadge status={row.status} /> : null}
+                    {!showDone ? (
                       <IconButton
                         icon={Check}
-                        label="Согласовать"
+                        label="Выполнить"
                         onClick={() =>
-                          mut.update.mutate({ id: row.id, values: { status: 'approved', resolved_at: new Date().toISOString() } })
+                          mut.complete.mutate(
+                            { id: row.id, userId: user?.id },
+                            {
+                              onSuccess: () => toast.success('Выполнено'),
+                              onError: (e) => toast.error(humanizeError(e)),
+                            },
+                          )
                         }
                       />
-                      <IconButton
-                        icon={X}
-                        label="Отклонить"
-                        variant="outline"
-                        onClick={() =>
-                          mut.update.mutate({ id: row.id, values: { status: 'rejected', resolved_at: new Date().toISOString() } })
-                        }
-                      />
-                    </>
-                  ) : null}
+                    ) : null}
+                    <IconButton
+                      icon={Trash2}
+                      label="Удалить"
+                      variant="destructive"
+                      onClick={() =>
+                        mut.softDelete.mutate(row.id, {
+                          onSuccess: () => toast.success('Удалено'),
+                          onError: (e) => toast.error(humanizeError(e)),
+                        })
+                      }
+                    />
+                  </div>
                 </div>
+                {row.details ? <p className="mt-1 whitespace-pre-wrap text-sm">{row.details}</p> : null}
               </div>
-              {row.details ? <p className="mt-1 whitespace-pre-wrap text-sm">{row.details}</p> : null}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <ListPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        </>
       )}
       <Dialog open={createOpen} onOpenChange={onCreateOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Заявка на расходники</DialogTitle>
+            <DialogTitle>Новая задача</DialogTitle>
           </DialogHeader>
-          <Field label="Что нужно">
+          <Field label="Что сделать">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
-          <Field label="Список позиций">
+          <Field label="Подробности">
             <Textarea value={details} onChange={(e) => setDetails(e.target.value)} />
           </Field>
-          <Field label="Нужно к">
+          <Field label="Срок">
             <DatePicker value={needBy} onChange={setNeedBy} />
           </Field>
           <DialogFooter>
             <Button
-              disabled={!title}
+              disabled={!title.trim() || mut.create.isPending}
               onClick={() =>
                 mut.create.mutate(
-                  { object_id: objectId, title, details, need_by: needBy || null },
+                  {
+                    object_id: objectId,
+                    title: title.trim(),
+                    details: details.trim() || null,
+                    need_by: needBy || null,
+                  },
                   {
                     onSuccess: () => {
-                      toast.success('Заявка создана')
+                      toast.success('Задача создана')
                       onCreateOpenChange(false)
                       setTitle('')
                       setDetails('')
+                      setNeedBy('')
                     },
                     onError: (e) => toast.error(humanizeError(e)),
                   },
                 )
               }
             >
-              Отправить
+              Создать
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1277,10 +1350,24 @@ function MembersTab({ objectId, owner }: { objectId: string; owner: boolean }) {
 }
 
 function HistoryTab({ objectId }: { objectId: string }) {
-  const activity = useActivity(objectId)
+  const { page, setPage, pageSize, setPageSize } = useListPaging(objectId)
+  const activity = useActivity(objectId, { page, pageSize })
   const profiles = useProfileMap()
   if (activity.isLoading) return <Skeleton className="h-40" />
-  return <ActivityList rows={activity.data ?? []} names={profiles.data} />
+  const rows = activity.data?.rows ?? []
+  const total = activity.data?.count ?? 0
+  return (
+    <div>
+      <ActivityList rows={rows} names={profiles.data} />
+      <ListPagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+      />
+    </div>
+  )
 }
 
 function ActivityList({

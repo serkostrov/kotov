@@ -42,8 +42,9 @@ export function useDashboard() {
           .from('material_requests')
           .select('id, title, status, created_at, object_id')
           .is('deleted_at', null)
-          .eq('status', 'new')
-          .order('created_at', { ascending: false }),
+          .in('status', ['new', 'approved'])
+          .order('created_at', { ascending: false })
+          .limit(8),
         supabase.from('v_object_progress').select('*'),
         supabase.from('v_object_economics').select('*'),
       ])

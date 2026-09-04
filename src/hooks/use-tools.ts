@@ -93,13 +93,36 @@ export function useToolMovements(toolId: string | undefined) {
         .eq('tool_id', toolId!)
         .order('moved_at', { ascending: false })
       if (error) throw error
-      const lookups = await toolLookups()
-      return (data ?? []).map((row) => ({
-        ...row,
-        object: row.object_id ? lookups.objects.get(row.object_id) ?? null : null,
-        from_holder: row.from_holder_id ? lookups.profiles.get(row.from_holder_id) ?? null : null,
-        to_holder: row.to_holder_id ? lookups.profiles.get(row.to_holder_id) ?? null : null,
-      }))
+
+      // Включаем мягко удалённые объекты — для старой истории без снимка имени
+      const [{ data: objects }, { data: profiles }] = await Promise.all([
+        supabase.from('objects').select('id, name'),
+        supabase.from('profiles').select('id, full_name'),
+      ])
+      const objectMap = new Map((objects ?? []).map((o) => [o.id, o]))
+      const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]))
+
+      return (data ?? []).map((row) => {
+        const object =
+          row.object_name
+            ? { id: row.object_id ?? '', name: row.object_name }
+            : row.object_id
+              ? objectMap.get(row.object_id) ?? null
+              : null
+        const fromObject =
+          row.from_object_name
+            ? { id: row.from_object_id ?? '', name: row.from_object_name }
+            : row.from_object_id
+              ? objectMap.get(row.from_object_id) ?? null
+              : null
+        return {
+          ...row,
+          object,
+          from_object: fromObject,
+          from_holder: row.from_holder_id ? profileMap.get(row.from_holder_id) ?? null : null,
+          to_holder: row.to_holder_id ? profileMap.get(row.to_holder_id) ?? null : null,
+        }
+      })
     },
   })
 }

@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { Logo } from '@/components/logo'
 import { Field } from '@/components/page-header'
+import { AuthBackdrop } from '@/components/auth-backdrop'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -29,24 +30,7 @@ export function LoginPage() {
 
   return (
     <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10">
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage: `
-            radial-gradient(ellipse 70% 55% at 15% 10%, oklch(0.78 0.08 55 / 0.35), transparent 55%),
-            radial-gradient(ellipse 55% 45% at 90% 85%, oklch(0.75 0.05 230 / 0.35), transparent 50%),
-            linear-gradient(160deg, oklch(0.28 0.03 250), oklch(0.22 0.025 250) 45%, oklch(0.2 0.02 250))
-          `,
-        }}
-      />
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.12]"
-        style={{
-          backgroundImage:
-            'linear-gradient(oklch(1 0 0 / 0.4) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0 / 0.4) 1px, transparent 1px)',
-          backgroundSize: '32px 32px',
-        }}
-      />
+      <AuthBackdrop className="pointer-events-none absolute inset-0" />
 
       <Card className="relative w-full max-w-[26rem] animate-rise border-white/10 bg-card/95 shadow-[0_24px_60px_-28px_oklch(0.15_0.02_250_/_0.7)]">
         <CardHeader className="space-y-5 pb-2">

@@ -34,3 +34,40 @@ export function ProfitLine({
     </span>
   )
 }
+
+/** Сумма договора и потраченное по проекту. */
+export function ContractSpendLine({
+  contractAmount,
+  expensesTotal,
+  compact = false,
+}: {
+  contractAmount: number | string | null | undefined
+  expensesTotal: number | string | null | undefined
+  compact?: boolean
+}) {
+  const contract = Number(contractAmount ?? 0)
+  const spent = Number(expensesTotal ?? 0)
+  if (!contract && !spent) {
+    return <span className="text-sm text-muted-foreground">—</span>
+  }
+  if (compact) {
+    return (
+      <div className="grid text-[13px]">
+        <Money value={contract} />
+        <span className="text-xs text-muted-foreground">
+          потрачено <Money value={spent} className="text-xs text-muted-foreground" />
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="grid gap-0.5 text-sm">
+      <span>
+        сумма <Money value={contract} />
+      </span>
+      <span className="text-muted-foreground">
+        потрачено <Money value={spent} className="text-muted-foreground" />
+      </span>
+    </div>
+  )
+}

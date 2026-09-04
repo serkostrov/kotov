@@ -61,6 +61,101 @@ export function useExpenseCategories() {
   })
 }
 
+export function useContacts() {
+  return useQuery({
+    queryKey: qk.contacts,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .is('deleted_at', null)
+        .order('full_name')
+      if (error) throw error
+
+      const ids = (data ?? []).map((c) => c.id)
+      const objectsByContact = new Map<string, { id: string; name: string }[]>()
+      if (ids.length > 0) {
+        const { data: linked, error: linkErr } = await supabase
+          .from('objects')
+          .select('id, name, customer_contact_id')
+          .in('customer_contact_id', ids)
+          .is('deleted_at', null)
+          .order('name')
+        if (linkErr) throw linkErr
+        for (const row of linked ?? []) {
+          if (!row.customer_contact_id) continue
+          const list = objectsByContact.get(row.customer_contact_id) ?? []
+          list.push({ id: row.id, name: row.name })
+          objectsByContact.set(row.customer_contact_id, list)
+        }
+      }
+
+      return (data ?? []).map((c) => ({
+        ...c,
+        objects: objectsByContact.get(c.id) ?? [],
+      }))
+    },
+  })
+}
+
+export function useContactMutations() {
+  const client = useQueryClient()
+  const invalidate = () => {
+    void client.invalidateQueries({ queryKey: qk.contacts })
+    void client.invalidateQueries({ queryKey: ['objects'] })
+  }
+
+  const create = useMutation({
+    mutationFn: async (values: { full_name: string; phone?: string | null }) => {
+      const { data, error } = await supabase
+        .from('contacts')
+        .insert({
+          full_name: values.full_name,
+          phone: values.phone ?? null,
+        })
+        .select('id')
+        .single()
+      if (error) throw error
+      return data
+    },
+    onSuccess: invalidate,
+  })
+
+  const update = useMutation({
+    mutationFn: async ({
+      id,
+      values,
+    }: {
+      id: string
+      values: { full_name: string; phone?: string | null }
+    }) => {
+      const { error } = await supabase
+        .from('contacts')
+        .update({
+          full_name: values.full_name,
+          phone: values.phone ?? null,
+        })
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  const softDelete = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('contacts')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) throw error
+      await supabase.from('objects').update({ customer_contact_id: null }).eq('customer_contact_id', id)
+    },
+    onSuccess: invalidate,
+  })
+
+  return { create, update, softDelete }
+}
+
 export function useOrganization() {
   return useQuery({
     queryKey: qk.organization,
@@ -278,19 +373,24 @@ export function useObjectStage(stageId: string | undefined) {
   })
 }
 
-export function useActivity(id: string | undefined) {
+export function useActivity(
+  id: string | undefined,
+  opts?: { page?: number; pageSize?: number },
+) {
+  const page = opts?.page ?? 0
+  const pageSize = opts?.pageSize ?? 50
   return useQuery({
-    queryKey: qk.activity(id ?? ''),
+    queryKey: qk.activity(id ?? '', { page, pageSize }),
     enabled: Boolean(id),
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from('activity_log')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('object_id', id!)
         .order('created_at', { ascending: false })
-        .limit(50)
+        .range(page * pageSize, page * pageSize + pageSize - 1)
       if (error) throw error
-      return data ?? []
+      return { rows: data ?? [], count: count ?? 0 }
     },
   })
 }
@@ -301,6 +401,7 @@ export function useObjectMutations() {
     void client.invalidateQueries({ queryKey: ['objects'] })
     void client.invalidateQueries({ queryKey: ['object'] })
     void client.invalidateQueries({ queryKey: ['dashboard'] })
+    void client.invalidateQueries({ queryKey: qk.contacts })
   }
 
   const create = useMutation({
@@ -387,13 +488,19 @@ export function useUsersAdmin() {
       if (error) throw error
       const { data: roles, error: rErr } = await supabase.from('user_roles').select('*')
       if (rErr) throw rErr
+      const { data: authEmails } = await supabase.rpc('list_auth_emails')
+      const emailById = new Map((authEmails ?? []).map((row) => [row.id, row.email]))
       const byUser = new Map<string, AppRole[]>()
       for (const row of roles ?? []) {
         const list = byUser.get(row.user_id) ?? []
         list.push(row.role)
         byUser.set(row.user_id, list)
       }
-      return (profiles ?? []).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] }))
+      return (profiles ?? []).map((p) => ({
+        ...p,
+        email: emailById.get(p.id) ?? p.email,
+        roles: byUser.get(p.id) ?? [],
+      }))
     },
   })
 }
