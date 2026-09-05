@@ -37,7 +37,7 @@ export function LoginPage() {
           <div className="flex items-center gap-3">
             <Logo className="h-11 w-11 text-primary" />
             <div>
-              <p className="text-[11px] font-bold tracking-[0.22em] text-muted-foreground">КОТОВ</p>
+              <p className="text-[11px] font-bold tracking-wide text-muted-foreground">ТЕПЛЫЙ КОНТУР</p>
               <CardTitle className="text-xl">Вход в систему</CardTitle>
             </div>
           </div>

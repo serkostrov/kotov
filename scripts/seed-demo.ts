@@ -50,7 +50,7 @@ const admin = createClient<Database>(url, service, { auth: { persistSession: fal
 const ownerClient = createClient<Database>(url, anonKey, { auth: { persistSession: false } })
 
 const users = [
-  { email: 'owner@kotov.local', full_name: 'Котов Сергей Дмитриевич', position: 'Руководитель', role: 'owner' as const },
+  { email: 'owner@kotov.local', full_name: 'Сергей Дмитриевич', position: 'Руководитель', role: 'owner' as const },
   { email: 'prod@kotov.local', full_name: 'Иванов Пётр Николаевич', position: 'Бригадир производства', role: 'prod_foreman' as const },
   { email: 'install@kotov.local', full_name: 'Смирнов Алексей Викторович', position: 'Бригадир монтажа', role: 'install_foreman' as const },
   { email: 'docs@kotov.local', full_name: 'Кузнецова Мария Игоревна', position: 'Документы', role: 'accountant' as const },
@@ -86,6 +86,8 @@ async function main() {
     password,
   })
   if (signError) throw signError
+
+  await admin.from('organization_profile').update({ name: 'Теплый контур' }).neq('name', '')
 
   const { data: expenseCats } = await admin.from('expense_categories').select('id, name')
   const { data: toolCats } = await admin.from('tool_categories').select('id, name')

@@ -57,7 +57,7 @@ export function AppShell() {
   const { data: org } = useOrganization()
   const items = navForRoles(roles)
   const [open, setOpen] = useState(false)
-  const brandName = org?.name ?? 'Котов'
+  const brandName = org?.name ?? 'Теплый контур'
 
   return (
     <div className="flex min-h-dvh">
@@ -114,7 +114,7 @@ export function AppShell() {
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <Logo className="h-7 w-7 shrink-0 text-primary" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold tracking-wide">КОТОВ</p>
+              <p className="truncate text-sm font-semibold tracking-wide">ТЕПЛЫЙ КОНТУР</p>
               <p className="truncate text-[11px] text-muted-foreground">{brandName}</p>
             </div>
           </div>
@@ -135,7 +135,7 @@ function Brand({ name }: { name: string }) {
     <div className="flex items-center gap-2.5 px-3.5 py-4">
       <Logo className="h-8 w-8 shrink-0 text-sidebar-primary" />
       <div className="min-w-0">
-        <p className="truncate text-[12px] font-bold tracking-[0.2em]">КОТОВ</p>
+        <p className="truncate text-[12px] font-bold tracking-wide">ТЕПЛЫЙ КОНТУР</p>
         <p className="truncate text-[10px] leading-tight text-sidebar-foreground/50">{name}</p>
       </div>
     </div>

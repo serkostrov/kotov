@@ -48,6 +48,6 @@ on conflict (name) do nothing;
 
 insert into public.organization_profile (name, details)
 select
-  'ИП Котов Сергей Дмитриевич',
+  'Теплый контур',
   'Изготовление и монтаж металлоконструкций' || E'\n' || 'г. Нижний Новгород'
 where not exists (select 1 from public.organization_profile);
