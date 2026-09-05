@@ -1,7 +1,41 @@
 import 'dotenv/config'
 
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '../src/lib/database.types.ts'
+
+const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
+
+/** Tiny local stubs — no network. */
+function ensureFixtures() {
+  mkdirSync(fixturesDir, { recursive: true })
+  const pngPath = join(fixturesDir, 'demo-photo.png')
+  const pdfPath = join(fixturesDir, 'demo-doc.pdf')
+  if (!existsSync(pngPath)) {
+    writeFileSync(
+      pngPath,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    )
+  }
+  if (!existsSync(pdfPath)) {
+    writeFileSync(
+      pdfPath,
+      Buffer.from(
+        '%PDF-1.1\n1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>endobj\nxref\n0 4\ntrailer<< /Root 1 0 R >>\n%%EOF\n',
+      ),
+    )
+  }
+  return {
+    png: readFileSync(pngPath),
+    pdf: readFileSync(pdfPath),
+  }
+}
 
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
 const service = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -63,7 +97,12 @@ async function main() {
   const cat = (name: string) => expenseCats.find((c) => c.name === name)?.id ?? expenseCats[0]!.id
   const tcat = (i: number) => toolCats[i % toolCats.length]!.id
 
-  await admin.from('objects').update({ deleted_at: new Date().toISOString() }).is('deleted_at', null)
+  const nowIso = new Date().toISOString()
+  await admin.from('attachments').update({ deleted_at: nowIso }).is('deleted_at', null)
+  await admin.from('expenses').update({ deleted_at: nowIso }).is('deleted_at', null)
+  await admin.from('material_requests').update({ deleted_at: nowIso }).is('deleted_at', null)
+  await admin.from('tools').update({ deleted_at: nowIso }).is('deleted_at', null)
+  await admin.from('objects').update({ deleted_at: nowIso }).is('deleted_at', null)
 
   const objectsSeed = [
     { name: 'Цех «Сормово»', address: 'г. Нижний Новгород, ул. Коминтерна, 166', customer_name: 'ООО «Волга-Сталь»', status: 'new' as const, contract_amount: 3_200_000, date_plan_end: '2026-11-20' },
@@ -198,21 +237,27 @@ async function main() {
 
   const vendors = ['ООО МеталлТорг', 'ИП Сидоров', 'Леруа', 'Восток-Техно', 'Газпромнефть']
   const descriptions = ['Электроды МР-3', 'Оплата бригады за неделю', 'Аренда манипулятора', 'Саморезы и пена', 'Дизель']
+  const expenseIds: string[] = []
   for (let i = 0; i < 28; i++) {
     const objectId = objectIds[i % objectIds.length]!
     const objectStages = (stages ?? []).filter((s) => s.object_id === objectId)
     const stage = i % 4 === 0 ? null : objectStages[i % Math.max(objectStages.length, 1)]
-    const { error } = await admin.from('expenses').insert({
-      object_id: objectId,
-      stage_id: stage?.id ?? null,
-      category_id: cat(['Расходные материалы', 'Оплата труда / бригады', 'Спецтехника', 'Материалы', 'Прочее'][i % 5]!),
-      amount: 12_000 + i * 3750,
-      expense_date: `2026-0${(i % 3) + 6}-${String((i % 27) + 1).padStart(2, '0')}`,
-      description: descriptions[i % descriptions.length],
-      vendor: vendors[i % vendors.length],
-      created_by: i % 2 === 0 ? ids.prod : ids.owner,
-    })
+    const { data: expense, error } = await admin
+      .from('expenses')
+      .insert({
+        object_id: objectId,
+        stage_id: stage?.id ?? null,
+        category_id: cat(['Расходные материалы', 'Оплата труда / бригады', 'Спецтехника', 'Материалы', 'Прочее'][i % 5]!),
+        amount: 12_000 + i * 3750,
+        expense_date: `2026-0${(i % 3) + 6}-${String((i % 27) + 1).padStart(2, '0')}`,
+        description: descriptions[i % descriptions.length],
+        vendor: vendors[i % vendors.length],
+        created_by: i % 2 === 0 ? ids.prod : ids.owner,
+      })
+      .select('id')
+      .single()
     if (error) throw error
+    expenseIds.push(expense.id)
   }
 
   await admin.from('material_requests').insert([
@@ -220,6 +265,79 @@ async function main() {
     { object_id: objectIds[3]!, title: 'Саморез по сэндвичу', details: '1000 шт + шайбы', status: 'approved', created_by: ids.install, need_by: '2026-09-05' },
     { object_id: objectIds[2]!, title: 'Отрезные круги 230', details: 'коробка 25 шт', status: 'purchased', created_by: ids.prod, need_by: '2026-08-28' },
   ])
+
+  const fixtures = ensureFixtures()
+  const photoObjectId = activeIds[0]!
+  const photoStages = (stages ?? []).filter((s) => s.object_id === photoObjectId)
+
+  async function uploadAttachment(params: {
+    objectId: string
+    kind: 'photo' | 'document'
+    fileName: string
+    mime: string
+    body: Buffer
+    folder: string
+    stageId?: string | null
+    expenseId?: string | null
+  }) {
+    const id = randomUUID()
+    const ext = params.fileName.includes('.') ? params.fileName.split('.').pop()! : params.kind === 'photo' ? 'png' : 'pdf'
+    const storagePath = `objects/${params.objectId}/${params.folder}/${id}.${ext}`
+    const { error: upErr } = await admin.storage.from('object-files').upload(storagePath, params.body, {
+      contentType: params.mime,
+      upsert: false,
+    })
+    if (upErr) throw upErr
+    const { error: dbErr } = await admin.from('attachments').insert({
+      object_id: params.objectId,
+      stage_id: params.stageId ?? null,
+      expense_id: params.expenseId ?? null,
+      kind: params.kind,
+      storage_path: storagePath,
+      file_name: params.fileName,
+      mime_type: params.mime,
+      file_size: params.body.length,
+      created_by: ids.owner,
+    })
+    if (dbErr) throw dbErr
+  }
+
+  for (let i = 0; i < 4; i++) {
+    await uploadAttachment({
+      objectId: photoObjectId,
+      kind: 'photo',
+      fileName: `фото-${i + 1}.png`,
+      mime: 'image/png',
+      body: fixtures.png,
+      folder: 'photos',
+      stageId: i < 2 ? photoStages[i]?.id ?? null : null,
+    })
+  }
+
+  for (const objectId of objectIds) {
+    await uploadAttachment({
+      objectId,
+      kind: 'document',
+      fileName: 'договор-черновик.pdf',
+      mime: 'application/pdf',
+      body: fixtures.pdf,
+      folder: 'docs',
+    })
+  }
+
+  for (const expenseId of expenseIds.slice(0, 2)) {
+    const { data: expense } = await admin.from('expenses').select('object_id').eq('id', expenseId).single()
+    if (!expense) continue
+    await uploadAttachment({
+      objectId: expense.object_id,
+      kind: 'document',
+      fileName: 'чек.pdf',
+      mime: 'application/pdf',
+      body: fixtures.pdf,
+      folder: `expenses/${expenseId}`,
+      expenseId,
+    })
+  }
 
   console.info('Demo seed complete. Users: owner@kotov.local, prod@kotov.local, install@kotov.local, docs@kotov.local')
 }

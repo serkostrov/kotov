@@ -32,7 +32,7 @@ import { STAGE_STATUS_LABELS, STAGE_TYPE_LABELS } from '@/lib/dictionaries'
 import { humanizeError } from '@/lib/errors'
 import { formatDate, formatDateTime } from '@/lib/format'
 import { canManageStages, canUpdateInstallation, canUpdateProduction, isOwner } from '@/lib/roles'
-import { formatStageVolume, resolveStageMetrics } from '@/lib/stage-progress'
+import { formatStageVolume, isVolumeProgressMode, resolveStageMetrics } from '@/lib/stage-progress'
 import { supabase } from '@/lib/supabase'
 import { uploadObjectFile } from '@/lib/upload'
 import { cn } from '@/lib/utils'
@@ -61,6 +61,7 @@ export function StagePage() {
   const [comment, setComment] = useState('')
   const [qtyPlan, setQtyPlan] = useState('')
   const [qtyFact, setQtyFact] = useState('')
+  const [progressPercent, setProgressPercent] = useState('0')
   const [unit, setUnit] = useState('')
   const [dateStart, setDateStart] = useState('')
   const [datePlanEnd, setDatePlanEnd] = useState('')
@@ -74,6 +75,7 @@ export function StagePage() {
     setComment(stage.comment ?? '')
     setQtyPlan(stage.qty_plan != null ? String(stage.qty_plan) : '')
     setQtyFact(stage.qty_fact != null ? String(stage.qty_fact) : '')
+    setProgressPercent(String(stage.progress_percent ?? 0))
     setUnit(stage.unit ?? '')
     setDateStart(stage.date_start ?? '')
     setDatePlanEnd(stage.date_plan_end ?? '')
@@ -116,6 +118,7 @@ export function StagePage() {
     setComment(stage.comment ?? '')
     setQtyPlan(stage.qty_plan != null ? String(stage.qty_plan) : '')
     setQtyFact(stage.qty_fact != null ? String(stage.qty_fact) : '')
+    setProgressPercent(String(stage.progress_percent ?? 0))
     setUnit(stage.unit ?? '')
     setDateStart(stage.date_start ?? '')
     setDatePlanEnd(stage.date_plan_end ?? '')
@@ -125,14 +128,20 @@ export function StagePage() {
   }
 
   const applyVolume = (nextPlan: string, nextFact: string, nextStatus: StageStatus = status) => {
+    const plan = parseQty(nextPlan)
+    const fact = parseQty(nextFact)
     const resolved = resolveStageMetrics({
       status: nextStatus,
-      qtyPlan: parseQty(nextPlan),
-      qtyFact: parseQty(nextFact),
+      qtyPlan: plan,
+      qtyFact: fact,
+      progressManual: parsePercent(progressPercent),
     })
     setQtyPlan(nextPlan)
     setQtyFact(nextFact)
     setStatus(resolved.status)
+    if (isVolumeProgressMode(plan)) {
+      setProgressPercent(String(resolved.progress))
+    }
   }
 
   const save = async () => {
@@ -140,7 +149,13 @@ export function StagePage() {
     try {
       const plan = parseQty(qtyPlan)
       const fact = parseQty(qtyFact)
-      const resolved = resolveStageMetrics({ status, qtyPlan: plan, qtyFact: fact })
+      const manual = parsePercent(progressPercent)
+      const resolved = resolveStageMetrics({
+        status,
+        qtyPlan: plan,
+        qtyFact: fact,
+        progressManual: manual,
+      })
       const { error } = await supabase
         .from('object_stages')
         .update({
@@ -158,6 +173,7 @@ export function StagePage() {
         .eq('id', stage.id)
       if (error) throw error
       setStatus(resolved.status)
+      setProgressPercent(String(resolved.progress))
       toast.success('Сохранено')
       setEditing(false)
       void client.invalidateQueries({ queryKey: ['object-stage'] })
@@ -215,7 +231,9 @@ export function StagePage() {
     status: editing ? status : stage.status,
     qtyPlan: editing ? parseQty(qtyPlan) : stage.qty_plan,
     qtyFact: editing ? parseQty(qtyFact) : stage.qty_fact,
+    progressManual: editing ? parsePercent(progressPercent) : stage.progress_percent,
   })
+  const volumeMode = isVolumeProgressMode(editing ? parseQty(qtyPlan) : stage.qty_plan)
 
   return (
     <div className="space-y-3">
@@ -268,13 +286,20 @@ export function StagePage() {
               value={status}
               onValueChange={(v) => {
                 const next = v as StageStatus
-                const resolved = resolveStageMetrics({
-                  status: next,
-                  qtyPlan: parseQty(qtyPlan),
-                  qtyFact: parseQty(qtyFact),
-                })
-                // Honor explicit done/blocked; otherwise keep volume-derived status.
-                setStatus(next === 'done' || next === 'blocked' ? next : resolved.status)
+                if (volumeMode) {
+                  const resolved = resolveStageMetrics({
+                    status: next,
+                    qtyPlan: parseQty(qtyPlan),
+                    qtyFact: parseQty(qtyFact),
+                    progressManual: parsePercent(progressPercent),
+                  })
+                  setStatus(next === 'done' || next === 'blocked' ? next : resolved.status)
+                  if (next === 'done') setProgressPercent('100')
+                } else {
+                  setStatus(next)
+                  if (next === 'not_started') setProgressPercent('0')
+                  if (next === 'done') setProgressPercent('100')
+                }
               }}
             >
               <SelectTrigger className="h-8 w-[10.5rem]">
@@ -340,6 +365,24 @@ export function StagePage() {
               <ParamCell label="Ед. изм.">
                 <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="шт, м, т…" />
               </ParamCell>
+              {volumeMode ? (
+                <ParamCell label="Процент выполнения">
+                  <p className="text-[13px] font-medium tabular">{liveMetrics.progress}%</p>
+                </ParamCell>
+              ) : (
+                <ParamCell label="Процент выполнения">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    className="tabular"
+                    value={progressPercent}
+                    onChange={(e) => setProgressPercent(e.target.value)}
+                    aria-label="Процент выполнения"
+                  />
+                </ParamCell>
+              )}
               <ParamCell label="Начало">
                 <DatePicker value={dateStart} onChange={setDateStart} />
               </ParamCell>
@@ -363,6 +406,7 @@ export function StagePage() {
               <ViewRow label="Ответственный" value={responsibleName} />
               <ViewRow label="Объём" value={formatStageVolume(stage.qty_fact, stage.qty_plan, stage.unit) ?? '—'} />
               <ViewRow label="Ед. изм." value={stage.unit?.trim() || '—'} />
+              <ViewRow label="Процент выполнения" value={`${liveMetrics.progress}%`} />
               <ViewRow label="Старт" value={formatDate(stage.date_start)} />
               <ViewRow label="План завершения" value={formatDate(stage.date_plan_end)} />
               <ViewRow label="Факт завершения" value={formatDate(stage.date_fact_end)} />
@@ -470,6 +514,12 @@ function parseQty(value: string) {
   if (value === '') return null
   const n = Number(value)
   return Number.isFinite(n) ? n : null
+}
+
+function parsePercent(value: string) {
+  if (value === '') return 0
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 function ViewRow({

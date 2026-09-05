@@ -42,6 +42,7 @@ export function ExpensesPage() {
   const names = useProfileMap()
 
   const pageTotal = expenses.data?.pageTotal ?? 0
+  const filteredTotal = expenses.data?.filteredTotal ?? 0
   const total = expenses.data?.count ?? 0
   const list = expenses.data?.rows ?? []
 
@@ -90,9 +91,14 @@ export function ExpensesPage() {
 
       <FilterBar
         trailing={
-          <FilterStat label="Итог стр.">
-            <Money value={pageTotal} />
-          </FilterStat>
+          <div className="flex flex-wrap items-center gap-3">
+            <FilterStat label="Итог по фильтру">
+              <Money value={filteredTotal} />
+            </FilterStat>
+            <FilterStat label="На странице">
+              <Money value={pageTotal} />
+            </FilterStat>
+          </div>
         }
       >
         <Select value={objectId} onValueChange={setObjectId}>

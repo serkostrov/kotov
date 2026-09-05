@@ -29,10 +29,20 @@ export function useExpenses(filters: ExpenseFilters) {
       if (filters.from) query = query.gte('expense_date', filters.from)
       if (filters.to) query = query.lte('expense_date', filters.to)
 
-      const { data, error, count } = await query
-        .order('expense_date', { ascending: false })
-        .range(page * pageSize, page * pageSize + pageSize - 1)
+      let sumQuery = supabase.from('expenses').select('amount').is('deleted_at', null)
+      if (filters.objectId && filters.objectId !== 'all') sumQuery = sumQuery.eq('object_id', filters.objectId)
+      if (filters.categoryId && filters.categoryId !== 'all') sumQuery = sumQuery.eq('category_id', filters.categoryId)
+      if (filters.authorId && filters.authorId !== 'all') sumQuery = sumQuery.eq('created_by', filters.authorId)
+      if (filters.stageId && filters.stageId !== 'all') sumQuery = sumQuery.eq('stage_id', filters.stageId)
+      if (filters.from) sumQuery = sumQuery.gte('expense_date', filters.from)
+      if (filters.to) sumQuery = sumQuery.lte('expense_date', filters.to)
+
+      const [{ data, error, count }, { data: sumRows, error: sumError }] = await Promise.all([
+        query.order('expense_date', { ascending: false }).range(page * pageSize, page * pageSize + pageSize - 1),
+        sumQuery,
+      ])
       if (error) throw error
+      if (sumError) throw sumError
 
       const [{ data: objects }, { data: categories }, { data: stages }] = await Promise.all([
         supabase.from('objects').select('id, name').is('deleted_at', null),
@@ -48,8 +58,9 @@ export function useExpenses(filters: ExpenseFilters) {
         category: catMap.get(row.category_id) ?? null,
         stage: row.stage_id ? stageMap.get(row.stage_id) ?? null : null,
       }))
-      const total = rows.reduce((sum, row) => sum + Number(row.amount), 0)
-      return { rows, count: count ?? 0, pageTotal: total }
+      const pageTotal = rows.reduce((sum, row) => sum + Number(row.amount), 0)
+      const filteredTotal = (sumRows ?? []).reduce((sum, row) => sum + Number(row.amount), 0)
+      return { rows, count: count ?? 0, pageTotal, filteredTotal }
     },
   })
 }
@@ -61,6 +72,7 @@ export function useExpenseMutations() {
     void client.invalidateQueries({ queryKey: ['object-economics'] })
     void client.invalidateQueries({ queryKey: ['object-expenses-cat'] })
     void client.invalidateQueries({ queryKey: ['object-expenses-contour'] })
+    void client.invalidateQueries({ queryKey: ['attachments'] })
     void client.invalidateQueries({ queryKey: ['activity'] })
     void client.invalidateQueries({ queryKey: ['dashboard'] })
   }
@@ -185,18 +197,33 @@ export function useRequestMutations() {
   return { create, update, softDelete, complete }
 }
 
-export function useAttachments(objectId: string | undefined, kinds: Array<'photo' | 'video' | 'document'>) {
+export function useAttachments(
+  objectId: string | undefined,
+  kinds: Array<'photo' | 'video' | 'document'>,
+  opts?: { expenseId?: string | null; excludeExpenseFiles?: boolean; onlyExpenseFiles?: boolean },
+) {
+  const expenseScope = opts?.expenseId
+    ? `expense:${opts.expenseId}`
+    : opts?.excludeExpenseFiles
+      ? 'no-expense'
+      : opts?.onlyExpenseFiles
+        ? 'only-expense'
+        : 'all'
   return useQuery({
-    queryKey: qk.attachments(objectId ?? '', kinds.join(',')),
+    queryKey: qk.attachments(objectId ?? '', kinds.join(','), expenseScope),
     enabled: Boolean(objectId),
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('attachments')
         .select('*')
         .eq('object_id', objectId!)
         .in('kind', kinds)
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
+      if (opts?.expenseId) query = query.eq('expense_id', opts.expenseId)
+      if (opts?.excludeExpenseFiles) query = query.is('expense_id', null)
+      if (opts?.onlyExpenseFiles) query = query.not('expense_id', 'is', null)
+      const { data, error } = await query
       if (error) throw error
       const { data: stages } = await supabase
         .from('object_stages')

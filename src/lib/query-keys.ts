@@ -21,7 +21,8 @@ export const qk = {
   expenses: (filters?: unknown) => ['expenses', filters] as const,
   expenseCategories: ['expense-categories'] as const,
   contacts: ['contacts'] as const,
-  attachments: (objectId: string, kind?: string) => ['attachments', objectId, kind] as const,
+  attachments: (objectId: string, kind?: string, expenseScope?: string) =>
+    ['attachments', objectId, kind, expenseScope] as const,
   signedUrl: (path: string) => ['signed-url', path] as const,
   requests: (filters?: unknown) => ['requests', filters] as const,
   dashboard: ['dashboard'] as const,

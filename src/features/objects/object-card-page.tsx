@@ -13,10 +13,12 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import {
   Check,
+  ChevronDown,
   ChevronRight,
   Download,
   FileText,
   GripVertical,
+  Paperclip,
   Pencil,
   Plus,
   Trash2,
@@ -57,6 +59,9 @@ import {
   useActivity,
   useAddStageFromTemplate,
   useObject,
+  useObjectEconomics,
+  useObjectExpensesByCategory,
+  useObjectExpensesByContour,
   useObjectMembers,
   useObjectMutations,
   useObjectProgress,
@@ -64,11 +69,11 @@ import {
   useProfiles,
   useContacts,
   useStageTemplates,
+  useExpenseCategories,
 } from '@/hooks/use-objects'
 import { useAttachments, useExpenseMutations, useExpenses, useMaterialRequests, useRequestMutations, useSignedUrl } from '@/hooks/use-finance'
 import { useObjectTools, useToolMutations, useTools } from '@/hooks/use-tools'
 import { useProfileMap } from '@/hooks/use-profile-map'
-import { useExpenseCategories } from '@/hooks/use-objects'
 import type { ObjectStatus, StageType } from '@/lib/database.types'
 import {
   ACTIVITY_ACTION_LABELS,
@@ -77,7 +82,7 @@ import {
   STAGE_TYPE_LABELS,
 } from '@/lib/dictionaries'
 import { humanizeError } from '@/lib/errors'
-import { fileSizeLabel, formatDate, formatDateTime, todayISO } from '@/lib/format'
+import { fileSizeLabel, formatDate, formatDateTime, formatPercent, todayISO } from '@/lib/format'
 import { canManageStages, canSeeEconomics, canUpdateInstallation, canUpdateProduction, isOwner } from '@/lib/roles'
 import { formatStageVolume, stageProgressOf } from '@/lib/stage-progress'
 import { supabase } from '@/lib/supabase'
@@ -945,7 +950,7 @@ function Lightbox({ path, onClose }: { path: string; onClose: () => void }) {
 }
 
 function DocsTab({ objectId }: { objectId: string }) {
-  const files = useAttachments(objectId, ['document'])
+  const files = useAttachments(objectId, ['document'], { excludeExpenseFiles: true })
   return (
     <div className="space-y-3">
       {(files.data ?? []).length === 0 ? (
@@ -995,33 +1000,199 @@ function ExpensesTab({
   createOpen: boolean
   onCreateOpenChange: (open: boolean) => void
 }) {
+  const { roles } = useAuth()
+  const showEco = canSeeEconomics(roles)
   const { page, setPage, pageSize, setPageSize } = useListPaging(objectId)
   const expenses = useExpenses({ objectId, page, pageSize })
+  const economics = useObjectEconomics(objectId, showEco)
+  const byCategory = useObjectExpensesByCategory(objectId, showEco)
+  const byContour = useObjectExpensesByContour(objectId, showEco)
   const cats = useExpenseCategories()
   const stages = useObjectStages(objectId)
   const create = useExpenseMutations().create
+  const expenseFiles = useAttachments(objectId, ['document', 'photo'], { onlyExpenseFiles: true })
   const list = expenses.data?.rows ?? []
   const total = expenses.data?.count ?? 0
+  const filesByExpense = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof expenseFiles.data>[number][]>()
+    for (const file of expenseFiles.data ?? []) {
+      if (!file.expense_id) continue
+      const bucket = map.get(file.expense_id) ?? []
+      bucket.push(file)
+      map.set(file.expense_id, bucket)
+    }
+    return map
+  }, [expenseFiles.data])
+  const [expandedExpenseId, setExpandedExpenseId] = useState<string | null>(null)
+
+  const categoryRows = useMemo(() => {
+    const rows = (byCategory.data ?? [])
+      .map((r) => ({
+        name: r.category_name ?? 'Без категории',
+        amount: Number(r.amount_total ?? 0),
+      }))
+      .filter((r) => r.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+    const sum = rows.reduce((s, r) => s + r.amount, 0)
+    return rows.map((r) => ({
+      ...r,
+      share: sum > 0 ? (r.amount / sum) * 100 : 0,
+    }))
+  }, [byCategory.data])
+
+  const contourRows = useMemo(() => {
+    const map = new Map<string | null, number>()
+    for (const r of byContour.data ?? []) {
+      map.set(r.stage_type, Number(r.amount_total ?? 0))
+    }
+    const order: Array<{ key: string | null; label: string }> = [
+      { key: 'production', label: STAGE_TYPE_LABELS.production },
+      { key: 'installation', label: STAGE_TYPE_LABELS.installation },
+      { key: null, label: 'Общие по объекту' },
+    ]
+    const rows = order
+      .map((o) => ({
+        label: o.label,
+        amount: map.get(o.key) ?? 0,
+      }))
+      .filter((r) => r.amount > 0)
+    const sum = rows.reduce((s, r) => s + r.amount, 0)
+    return rows.map((r) => ({
+      ...r,
+      share: sum > 0 ? (r.amount / sum) * 100 : 0,
+    }))
+  }, [byContour.data])
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {showEco ? (
+        <div className="overflow-hidden rounded-xl border border-border/80 bg-card">
+          <div className="border-b border-border/70 px-3.5 py-2.5">
+            <h2 className="text-[13px] font-semibold tracking-tight">Экономика объекта</h2>
+          </div>
+          <div className="space-y-3 p-3.5">
+            {economics.isLoading || byCategory.isLoading || byContour.isLoading ? (
+              <Skeleton className="h-28 w-full" />
+            ) : economics.isError ? (
+              <ErrorState
+                message={humanizeError(economics.error)}
+                onRetry={() => {
+                  void economics.refetch()
+                  void byCategory.refetch()
+                  void byContour.refetch()
+                }}
+              />
+            ) : (
+              <>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <EcoKpi label="Сумма договора">
+                    <Money value={economics.data?.contract_amount ?? 0} />
+                  </EcoKpi>
+                  <EcoKpi label="Расходы всего">
+                    <Money value={economics.data?.expenses_total ?? 0} />
+                  </EcoKpi>
+                  <EcoKpi label="Прибыль">
+                    <Money value={economics.data?.profit ?? 0} signed />
+                  </EcoKpi>
+                  <EcoKpi label="Маржа">
+                    {!Number(economics.data?.contract_amount ?? 0) ? (
+                      <span className="text-[13px] text-muted-foreground">Сумма договора не указана</span>
+                    ) : (
+                      <span className="font-mono tabular text-[13px] font-medium">
+                        {formatPercent(economics.data?.margin_percent)}
+                      </span>
+                    )}
+                  </EcoKpi>
+                </div>
+
+                {categoryRows.length > 0 ? (
+                  <div>
+                    <p className="mb-1.5 text-[12px] font-medium text-muted-foreground">По категориям</p>
+                    <ul className="divide-y divide-border/70 rounded-lg border border-border/70">
+                      {categoryRows.map((row) => (
+                        <li key={row.name} className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
+                          <span className="min-w-0 truncate">{row.name}</span>
+                          <span className="flex shrink-0 items-baseline gap-2">
+                            <Money value={row.amount} />
+                            <span className="w-12 text-right font-mono text-xs tabular text-muted-foreground">
+                              {formatPercent(row.share)}
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {contourRows.length > 0 ? (
+                  <div>
+                    <p className="mb-1.5 text-[12px] font-medium text-muted-foreground">По контурам</p>
+                    <ul className="divide-y divide-border/70 rounded-lg border border-border/70">
+                      {contourRows.map((row) => (
+                        <li key={row.label} className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
+                          <span className="min-w-0 truncate">{row.label}</span>
+                          <span className="flex shrink-0 items-baseline gap-2">
+                            <Money value={row.amount} />
+                            <span className="w-12 text-right font-mono text-xs tabular text-muted-foreground">
+                              {formatPercent(row.share)}
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {list.length === 0 ? (
         <EmptyState title="Расходов пока нет" />
       ) : (
         <>
           <div className="grid gap-1.5">
-            {list.map((row) => (
-              <div key={row.id} className="flex items-start justify-between gap-2 rounded-xl border bg-card px-3 py-2">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium">{row.category?.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatDate(row.expense_date)} · {row.stage?.name ?? 'Общие'} · {row.vendor ?? '—'}
-                  </p>
-                  {row.description ? <p className="mt-0.5 text-sm">{row.description}</p> : null}
+            {list.map((row) => {
+              const files = filesByExpense.get(row.id) ?? []
+              const expanded = expandedExpenseId === row.id
+              return (
+                <div key={row.id} className="rounded-xl border bg-card px-3 py-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium">{row.category?.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(row.expense_date)} · {row.stage?.name ?? 'Общие'} · {row.vendor ?? '—'}
+                      </p>
+                      {row.description ? <p className="mt-0.5 text-sm">{row.description}</p> : null}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {files.length > 0 ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 gap-1 px-2 text-xs"
+                          onClick={() => setExpandedExpenseId(expanded ? null : row.id)}
+                        >
+                          <Paperclip className="h-3.5 w-3.5" />
+                          {files.length}
+                          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                        </Button>
+                      ) : null}
+                      <Money value={row.amount} />
+                    </div>
+                  </div>
+                  {expanded && files.length > 0 ? (
+                    <div className="mt-2 grid gap-1.5 border-t border-border/70 pt-2">
+                      {files.map((file) => (
+                        <DocRow key={file.id} file={file} />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                <Money value={row.amount} />
-              </div>
-            ))}
+              )
+            })}
           </div>
           <ListPagination
             page={page}
@@ -1037,19 +1208,39 @@ function ExpensesTab({
         onOpenChange={onCreateOpenChange}
         categories={cats.data ?? []}
         stages={stages.data ?? []}
-        onSubmit={(values) =>
-          create.mutate(
-            { ...values, object_id: objectId },
-            {
-              onSuccess: () => {
-                toast.success('Расход добавлен')
-                onCreateOpenChange(false)
-              },
-              onError: (e) => toast.error(humanizeError(e)),
-            },
-          )
-        }
+        pending={create.isPending}
+        onSubmit={async (values, files) => {
+          try {
+            const created = await create.mutateAsync({ ...values, object_id: objectId })
+            let failed = 0
+            for (const file of files) {
+              try {
+                await uploadObjectFile({ file, objectId, expenseId: created.id })
+              } catch {
+                failed += 1
+              }
+            }
+            if (files.length > 0 && failed > 0) {
+              toast.success('Расход добавлен, файл не загружен')
+            } else {
+              toast.success('Расход добавлен')
+            }
+            onCreateOpenChange(false)
+            void expenseFiles.refetch()
+          } catch (e) {
+            toast.error(humanizeError(e))
+          }
+        }}
       />
+    </div>
+  )
+}
+
+function EcoKpi({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <div className="mt-0.5 font-medium">{children}</div>
     </div>
   )
 }
@@ -1059,13 +1250,25 @@ function ExpenseDialog({
   onOpenChange,
   categories,
   stages,
+  pending,
   onSubmit,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   categories: { id: string; name: string; is_active: boolean }[]
   stages: { id: string; name: string }[]
-  onSubmit: (values: { category_id: string; amount: number; expense_date: string; description?: string; vendor?: string; stage_id?: string | null }) => void
+  pending?: boolean
+  onSubmit: (
+    values: {
+      category_id: string
+      amount: number
+      expense_date: string
+      description?: string
+      vendor?: string
+      stage_id?: string | null
+    },
+    files: File[],
+  ) => void | Promise<void>
 }) {
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? '')
   const [amount, setAmount] = useState('')
@@ -1073,6 +1276,21 @@ function ExpenseDialog({
   const [description, setDescription] = useState('')
   const [vendor, setVendor] = useState('')
   const [stageId, setStageId] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [saving, setSaving] = useState(false)
+  const busy = pending || saving
+
+  useEffect(() => {
+    if (!open) {
+      setAmount('')
+      setDate('')
+      setDescription('')
+      setVendor('')
+      setStageId('')
+      setFiles([])
+      setCategoryId(categories[0]?.id ?? '')
+    }
+  }, [open, categories])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1122,21 +1340,49 @@ function ExpenseDialog({
           <Field label="Описание">
             <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
           </Field>
+          <Field label="Чек или документ">
+            <Input
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.heic"
+              disabled={busy}
+              onChange={(e) => {
+                setFiles(Array.from(e.target.files ?? []))
+                e.target.value = ''
+              }}
+            />
+            {files.length > 0 ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Выбрано: {files.map((f) => f.name).join(', ')}
+              </p>
+            ) : null}
+          </Field>
         </div>
         <DialogFooter>
           <Button
-            onClick={() =>
-              onSubmit({
-                category_id: categoryId,
-                amount: Number(amount),
-                expense_date: date || todayISO(),
-                description: description || undefined,
-                vendor: vendor || undefined,
-                stage_id: stageId || null,
-              })
-            }
+            disabled={busy || !categoryId || !amount}
+            onClick={() => {
+              void (async () => {
+                setSaving(true)
+                try {
+                  await onSubmit(
+                    {
+                      category_id: categoryId,
+                      amount: Number(amount),
+                      expense_date: date || todayISO(),
+                      description: description || undefined,
+                      vendor: vendor || undefined,
+                      stage_id: stageId || null,
+                    },
+                    files,
+                  )
+                } finally {
+                  setSaving(false)
+                }
+              })()
+            }}
           >
-            Сохранить
+            {busy ? 'Сохранение…' : 'Сохранить'}
           </Button>
         </DialogFooter>
       </DialogContent>

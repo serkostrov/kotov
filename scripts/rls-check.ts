@@ -54,8 +54,11 @@ async function main() {
 
   const own = prodObjects?.[0]
   if (own) {
-    const { error } = await prod.from('objects').update({ contract_amount: 1 }).eq('id', own.id)
-    assert(error, 'бригадир не должен менять сумму договора')
+    const before = Number(own.contract_amount)
+    const { error } = await prod.from('objects').update({ contract_amount: before + 1 }).eq('id', own.id)
+    const { data: after } = await prod.from('objects').select('contract_amount').eq('id', own.id).maybeSingle()
+    // PostgREST often returns no error on RLS-denied UPDATE (0 rows); verify value unchanged.
+    assert(error || Number(after?.contract_amount) === before, 'бригадир не должен менять сумму договора')
   }
 
   const { data: aTool } = await prod.from('tools').select('id').limit(1).maybeSingle()
