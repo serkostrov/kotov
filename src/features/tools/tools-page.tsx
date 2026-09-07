@@ -280,7 +280,7 @@ export function ToolsPage() {
                     />
                   </td>
                   <td className="px-3 py-2 font-medium">{tool.name}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{tool.inventory_number ?? '—'}</td>
+                  <td className="px-3 py-2 text-xs">{tool.inventory_number ?? '—'}</td>
                   <td className="px-3 py-2">{tool.category?.name ?? '—'}</td>
                   <td className="px-3 py-2">
                     <ToolStatusBadge status={tool.status} />

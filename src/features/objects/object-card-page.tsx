@@ -74,17 +74,23 @@ import {
 import { useAttachments, useExpenseMutations, useExpenses, useMaterialRequests, useRequestMutations, useSignedUrl } from '@/hooks/use-finance'
 import { useObjectTools, useToolMutations, useTools } from '@/hooks/use-tools'
 import { useProfileMap } from '@/hooks/use-profile-map'
-import type { ObjectStatus, StageType } from '@/lib/database.types'
+import type { ObjectStatus, StageStatus, StageType } from '@/lib/database.types'
 import {
   ACTIVITY_ACTION_LABELS,
   ACTIVITY_ENTITY_LABELS,
   OBJECT_STATUS_LABELS,
+  STAGE_STATUS_LABELS,
   STAGE_TYPE_LABELS,
 } from '@/lib/dictionaries'
 import { humanizeError } from '@/lib/errors'
 import { fileSizeLabel, formatDate, formatDateTime, formatPercent, todayISO } from '@/lib/format'
 import { canManageStages, canSeeEconomics, canUpdateInstallation, canUpdateProduction, isOwner } from '@/lib/roles'
-import { formatStageVolume, stageProgressOf } from '@/lib/stage-progress'
+import {
+  formatStageVolume,
+  isVolumeProgressMode,
+  resolveStageMetrics,
+  stageProgressOf,
+} from '@/lib/stage-progress'
 import { supabase } from '@/lib/supabase'
 import { signedUrl, uploadObjectFile } from '@/lib/upload'
 import { cn } from '@/lib/utils'
@@ -446,8 +452,20 @@ function AddStageDialog({
 }) {
   const templates = useStageTemplates()
   const stages = useObjectStages(objectId, stageType)
+  const profiles = useProfiles()
   const addStage = useAddStageFromTemplate()
   const [templateId, setTemplateId] = useState('')
+  const [step, setStep] = useState<'pick' | 'details'>('pick')
+  const [status, setStatus] = useState<StageStatus>('not_started')
+  const [comment, setComment] = useState('')
+  const [qtyPlan, setQtyPlan] = useState('')
+  const [qtyFact, setQtyFact] = useState('')
+  const [progressPercent, setProgressPercent] = useState('0')
+  const [unit, setUnit] = useState('')
+  const [dateStart, setDateStart] = useState('')
+  const [datePlanEnd, setDatePlanEnd] = useState('')
+  const [dateFactEnd, setDateFactEnd] = useState('')
+  const [responsibleId, setResponsibleId] = useState('')
 
   const usedTemplateIds = useMemo(
     () => new Set((stages.data ?? []).map((s) => s.template_id).filter(Boolean) as string[]),
@@ -462,68 +480,310 @@ function AddStageDialog({
     [templates.data, stageType, usedTemplateIds],
   )
 
+  const selectedTemplate = useMemo(
+    () => available.find((t) => t.id === templateId) ?? null,
+    [available, templateId],
+  )
+
+  const resetForm = () => {
+    setTemplateId('')
+    setStep('pick')
+    setStatus('not_started')
+    setComment('')
+    setQtyPlan('')
+    setQtyFact('')
+    setProgressPercent('0')
+    setUnit('')
+    setDateStart('')
+    setDatePlanEnd('')
+    setDateFactEnd('')
+    setResponsibleId('')
+  }
+
   useEffect(() => {
-    if (!open) setTemplateId('')
+    if (!open) resetForm()
   }, [open])
+
+  const planNum = parseStageQty(qtyPlan)
+  const volumeMode = isVolumeProgressMode(planNum)
+  const liveMetrics = resolveStageMetrics({
+    status,
+    qtyPlan: planNum,
+    qtyFact: parseStageQty(qtyFact),
+    progressManual: parseStagePercent(progressPercent),
+  })
+
+  const applyVolume = (nextPlan: string, nextFact: string, nextStatus: StageStatus = status) => {
+    const plan = parseStageQty(nextPlan)
+    const fact = parseStageQty(nextFact)
+    const resolved = resolveStageMetrics({
+      status: nextStatus,
+      qtyPlan: plan,
+      qtyFact: fact,
+      progressManual: parseStagePercent(progressPercent),
+    })
+    setQtyPlan(nextPlan)
+    setQtyFact(nextFact)
+    setStatus(resolved.status)
+    if (isVolumeProgressMode(plan)) {
+      setProgressPercent(String(resolved.progress))
+    }
+  }
+
+  const selectTemplate = (id: string) => {
+    const template = available.find((t) => t.id === id)
+    setTemplateId(id)
+    setUnit(template?.unit ?? '')
+    setStatus('not_started')
+    setComment('')
+    setQtyPlan('')
+    setQtyFact('')
+    setProgressPercent('0')
+    setDateStart('')
+    setDatePlanEnd('')
+    setDateFactEnd('')
+    setResponsibleId('')
+    setStep('details')
+  }
+
+  const submit = () => {
+    if (!templateId) return
+    const plan = parseStageQty(qtyPlan)
+    const fact = parseStageQty(qtyFact)
+    const resolved = resolveStageMetrics({
+      status,
+      qtyPlan: plan,
+      qtyFact: fact,
+      progressManual: parseStagePercent(progressPercent),
+    })
+    addStage.mutate(
+      {
+        objectId,
+        templateId,
+        unit: unit.trim() || null,
+        qty_plan: plan,
+        qty_fact: fact,
+        progress_percent: resolved.progress,
+        status: resolved.status,
+        date_start: dateStart || null,
+        date_plan_end: datePlanEnd || null,
+        date_fact_end: dateFactEnd || null,
+        responsible_id: responsibleId || null,
+        comment: comment.trim() || null,
+      },
+      {
+        onSuccess: () => {
+          toast.success('Работа добавлена')
+          onOpenChange(false)
+        },
+        onError: (e) => toast.error(humanizeError(e)),
+      },
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={step === 'details' ? 'max-w-2xl' : undefined}>
         <DialogHeader>
-          <DialogTitle>Добавить работу</DialogTitle>
+          <DialogTitle>
+            {step === 'pick' ? 'Добавить работу' : selectedTemplate?.name ?? 'Параметры работы'}
+          </DialogTitle>
+          {step === 'details' ? (
+            <p className="text-sm text-muted-foreground">
+              Заполните параметры сразу — потом можно будет изменить на карточке работы.
+            </p>
+          ) : null}
         </DialogHeader>
-        <Field label={`Шаблон · ${STAGE_TYPE_LABELS[stageType].toLowerCase()}`}>
-          {templates.isLoading ? (
-            <Skeleton className="h-9 w-full" />
-          ) : available.length === 0 ? (
-            <div className="space-y-2 rounded-md border border-dashed px-3 py-2.5 text-[13px] text-muted-foreground">
-              <p>Нет доступных шаблонов — добавьте их в настройках или все уже на объекте.</p>
-              <Link
-                to={`/settings?tab=stages&type=${stageType}`}
-                className="inline-flex text-[13px] font-medium text-primary hover:underline"
-                onClick={() => onOpenChange(false)}
+
+        {step === 'pick' ? (
+          <Field label={`Шаблон · ${STAGE_TYPE_LABELS[stageType].toLowerCase()}`}>
+            {templates.isLoading ? (
+              <Skeleton className="h-9 w-full" />
+            ) : available.length === 0 ? (
+              <div className="space-y-2 rounded-md border border-dashed px-3 py-2.5 text-[13px] text-muted-foreground">
+                <p>Нет доступных шаблонов — добавьте их в настройках или все уже на объекте.</p>
+                <Link
+                  to={`/settings?tab=stages&type=${stageType}`}
+                  className="inline-flex text-[13px] font-medium text-primary hover:underline"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Открыть шаблоны · {STAGE_TYPE_LABELS[stageType].toLowerCase()}
+                </Link>
+              </div>
+            ) : (
+              <Select value={templateId || undefined} onValueChange={selectTemplate}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите работу" />
+                </SelectTrigger>
+                <SelectContent>
+                  {available.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                      {t.unit ? ` · ${t.unit}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </Field>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Статус">
+              <Select
+                value={status}
+                onValueChange={(v) => {
+                  const next = v as StageStatus
+                  if (volumeMode) {
+                    const resolved = resolveStageMetrics({
+                      status: next,
+                      qtyPlan: planNum,
+                      qtyFact: parseStageQty(qtyFact),
+                      progressManual: parseStagePercent(progressPercent),
+                    })
+                    setStatus(next === 'done' || next === 'blocked' ? next : resolved.status)
+                    if (next === 'done') setProgressPercent('100')
+                  } else {
+                    setStatus(next)
+                    if (next === 'not_started') setProgressPercent('0')
+                    if (next === 'done') setProgressPercent('100')
+                  }
+                }}
               >
-                Открыть шаблоны · {STAGE_TYPE_LABELS[stageType].toLowerCase()}
-              </Link>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(STAGE_STATUS_LABELS) as StageStatus[]).map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {STAGE_STATUS_LABELS[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field label="Ответственный">
+              <Select
+                value={responsibleId || 'none'}
+                onValueChange={(v) => setResponsibleId(v === 'none' ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Не назначен" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Не назначен</SelectItem>
+                  {(profiles.data ?? []).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field label="Объём факт / план">
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="number"
+                  step="0.01"
+                  className="min-w-0 flex-1 tabular"
+                  placeholder="Факт"
+                  value={qtyFact}
+                  onChange={(e) => applyVolume(qtyPlan, e.target.value)}
+                  aria-label="Объём факт"
+                />
+                <span className="shrink-0 text-[12px] text-muted-foreground">из</span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  className="min-w-0 flex-1 tabular"
+                  placeholder="План"
+                  value={qtyPlan}
+                  onChange={(e) => applyVolume(e.target.value, qtyFact)}
+                  aria-label="Объём план"
+                />
+              </div>
+            </Field>
+
+            <Field label="Ед. изм.">
+              <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="шт, м, т…" />
+            </Field>
+
+            <Field label="Процент выполнения">
+              {volumeMode ? (
+                <p className="flex h-9 items-center text-[13px] font-medium tabular">{liveMetrics.progress}%</p>
+              ) : (
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  className="tabular"
+                  value={progressPercent}
+                  onChange={(e) => setProgressPercent(e.target.value)}
+                  aria-label="Процент выполнения"
+                />
+              )}
+            </Field>
+
+            <Field label="Начало">
+              <DatePicker value={dateStart} onChange={setDateStart} />
+            </Field>
+
+            <Field label="План завершения">
+              <DatePicker value={datePlanEnd} onChange={setDatePlanEnd} />
+            </Field>
+
+            <Field label="Факт завершения">
+              <DatePicker value={dateFactEnd} onChange={setDateFactEnd} />
+            </Field>
+
+            <div className="sm:col-span-2">
+              <Field label="Комментарий">
+                <Textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  rows={3}
+                  className="min-h-[76px] resize-y"
+                  placeholder="Необязательно"
+                />
+              </Field>
             </div>
-          ) : (
-            <Select value={templateId || undefined} onValueChange={setTemplateId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Выберите работу" />
-              </SelectTrigger>
-              <SelectContent>
-                {available.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                    {t.unit ? ` · ${t.unit}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </Field>
-        <DialogFooter>
-          <Button
-            disabled={!templateId || addStage.isPending}
-            onClick={() =>
-              addStage.mutate(
-                { objectId, templateId },
-                {
-                  onSuccess: () => {
-                    toast.success('Работа добавлена')
-                    onOpenChange(false)
-                  },
-                  onError: (e) => toast.error(humanizeError(e)),
-                },
-              )
-            }
-          >
-            Добавить
-          </Button>
-        </DialogFooter>
+          </div>
+        )}
+
+        {step === 'details' ? (
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={addStage.isPending}
+              onClick={() => {
+                setStep('pick')
+                setTemplateId('')
+              }}
+            >
+              Назад
+            </Button>
+            <Button disabled={!templateId || addStage.isPending} onClick={submit}>
+              Добавить
+            </Button>
+          </DialogFooter>
+        ) : null}
       </DialogContent>
     </Dialog>
   )
+}
+
+function parseStageQty(value: string) {
+  if (value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function parseStagePercent(value: string) {
+  if (value === '') return 0
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 function StagesTab({
@@ -573,7 +833,7 @@ function StagesTab({
               </span>
               <span className="inline-flex items-center gap-2">
                 Средний прогресс
-                <span className="font-mono font-medium tabular text-foreground">{avg}%</span>
+                <span className="font-medium tabular text-foreground">{avg}%</span>
                 <Progress value={avg} className="h-1.5 w-20" />
               </span>
             </div>
@@ -705,7 +965,7 @@ function StageRowCard({
       <Link to={href} className="hidden min-w-0 md:block">
         <div className="flex items-center gap-1.5">
           <Progress value={progress} className="h-1.5 flex-1" />
-          <span className="w-8 text-right font-mono text-[11px] tabular text-muted-foreground">{progress}%</span>
+          <span className="w-8 text-right text-[11px] tabular text-muted-foreground">{progress}%</span>
         </div>
       </Link>
 
@@ -842,7 +1102,7 @@ function ToolsTab({
                     }
                   />
                   <span className="min-w-0 flex-1 truncate font-medium">{tool.name}</span>
-                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
                     {tool.inventory_number ?? '—'}
                   </span>
                 </label>
@@ -1098,7 +1358,7 @@ function ExpensesTab({
                     {!Number(economics.data?.contract_amount ?? 0) ? (
                       <span className="text-[13px] text-muted-foreground">Сумма договора не указана</span>
                     ) : (
-                      <span className="font-mono tabular text-[13px] font-medium">
+                      <span className="tabular text-[13px] font-medium">
                         {formatPercent(economics.data?.margin_percent)}
                       </span>
                     )}
@@ -1114,7 +1374,7 @@ function ExpensesTab({
                           <span className="min-w-0 truncate">{row.name}</span>
                           <span className="flex shrink-0 items-baseline gap-2">
                             <Money value={row.amount} />
-                            <span className="w-12 text-right font-mono text-xs tabular text-muted-foreground">
+                            <span className="w-12 text-right text-xs tabular text-muted-foreground">
                               {formatPercent(row.share)}
                             </span>
                           </span>
@@ -1133,7 +1393,7 @@ function ExpensesTab({
                           <span className="min-w-0 truncate">{row.label}</span>
                           <span className="flex shrink-0 items-baseline gap-2">
                             <Money value={row.amount} />
-                            <span className="w-12 text-right font-mono text-xs tabular text-muted-foreground">
+                            <span className="w-12 text-right text-xs tabular text-muted-foreground">
                               {formatPercent(row.share)}
                             </span>
                           </span>

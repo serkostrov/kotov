@@ -85,7 +85,7 @@ export function DashboardPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{kpi.label}</p>
-                <p className="truncate font-mono text-lg font-semibold tabular tracking-tight">{kpi.value}</p>
+                <p className="truncate text-lg font-semibold tabular tracking-tight">{kpi.value}</p>
               </div>
             </CardContent>
           </Card>
@@ -159,7 +159,7 @@ export function DashboardPage() {
                         <p className="truncate text-sm font-medium">{stage.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{stage.object?.name}</p>
                       </div>
-                      <span className="shrink-0 rounded-md bg-destructive/10 px-2 py-0.5 font-mono text-xs font-semibold text-destructive">
+                      <span className="shrink-0 rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
                         +{days} дн.
                       </span>
                     </Link>

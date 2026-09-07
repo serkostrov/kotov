@@ -35,7 +35,7 @@ export function CompactProgress({
     <div className={cn('min-w-0', className)}>
       <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-muted-foreground">
         <span>{label ?? 'Прогресс'}</span>
-        <span className="font-mono tabular text-foreground">{formatPercent(pct)}</span>
+        <span className="tabular text-foreground">{formatPercent(pct)}</span>
       </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
         <div
@@ -71,7 +71,7 @@ function ProgressRow({
             style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
           />
         </div>
-        <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular text-foreground">
+        <span className="w-8 shrink-0 text-right text-[11px] tabular text-foreground">
           {value === null ? '—' : formatPercent(value)}
         </span>
       </div>
@@ -82,7 +82,7 @@ function ProgressRow({
     <div>
       <div className="mb-0.5 flex justify-between gap-2 text-[11px] font-medium text-muted-foreground">
         <span className="truncate">{label}</span>
-        <span className="shrink-0 font-mono tabular">{value === null ? '—' : formatPercent(value)}</span>
+        <span className="shrink-0 tabular">{value === null ? '—' : formatPercent(value)}</span>
       </div>
       <div className={cn('w-full overflow-hidden rounded-full bg-secondary', compact ? 'h-1' : 'h-1.5')}>
         <div

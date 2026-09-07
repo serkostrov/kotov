@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/lib/query-keys'
 import { supabase } from '@/lib/supabase'
-import type { AppRole, ObjectStatus, StageType, TablesInsert, TablesUpdate } from '@/lib/database.types'
+import type {
+  AppRole,
+  ObjectStatus,
+  StageStatus,
+  StageType,
+  TablesInsert,
+  TablesUpdate,
+} from '@/lib/database.types'
 
 async function loadProfiles() {
   const { data, error } = await supabase.from('profiles').select('id, full_name, position, phone')
@@ -432,16 +439,38 @@ export function useObjectMutations() {
   return { create, update, softDelete }
 }
 
+export type AddStageFromTemplateInput = {
+  objectId: string
+  templateId: string
+  unit?: string | null
+  qty_plan?: number | null
+  qty_fact?: number | null
+  progress_percent?: number
+  status?: StageStatus
+  date_start?: string | null
+  date_plan_end?: string | null
+  date_fact_end?: string | null
+  responsible_id?: string | null
+  comment?: string | null
+}
+
 export function useAddStageFromTemplate() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: async ({
       objectId,
       templateId,
-    }: {
-      objectId: string
-      templateId: string
-    }) => {
+      unit,
+      qty_plan,
+      qty_fact,
+      progress_percent,
+      status,
+      date_start,
+      date_plan_end,
+      date_fact_end,
+      responsible_id,
+      comment,
+    }: AddStageFromTemplateInput) => {
       const { data: template, error: tErr } = await supabase
         .from('stage_templates')
         .select('*')
@@ -467,7 +496,16 @@ export function useAddStageFromTemplate() {
         stage_type: template.stage_type,
         template_id: template.id,
         name: template.name,
-        unit: template.unit,
+        unit: unit !== undefined ? unit : template.unit,
+        qty_plan: qty_plan ?? null,
+        qty_fact: qty_fact ?? null,
+        progress_percent: progress_percent ?? 0,
+        status: status ?? 'not_started',
+        date_start: date_start ?? null,
+        date_plan_end: date_plan_end ?? null,
+        date_fact_end: date_fact_end ?? null,
+        responsible_id: responsible_id ?? null,
+        comment: comment ?? null,
         sort_order: nextOrder,
       })
       if (error) throw error
@@ -476,6 +514,7 @@ export function useAddStageFromTemplate() {
       void client.invalidateQueries({ queryKey: ['object-stages'] })
       void client.invalidateQueries({ queryKey: ['object-progress'] })
       void client.invalidateQueries({ queryKey: ['dashboard'] })
+      void client.invalidateQueries({ queryKey: ['activity'] })
     },
   })
 }

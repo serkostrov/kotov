@@ -12,7 +12,7 @@ export function Money({
 }) {
   const n = Number(value ?? 0)
   const tone = signed ? (n > 0 ? 'text-success' : n < 0 ? 'text-destructive' : 'text-muted-foreground') : undefined
-  return <span className={cn('font-mono tabular text-[0.95em]', tone, className)}>{formatMoney(n)}</span>
+  return <span className={cn('tabular text-[0.95em]', tone, className)}>{formatMoney(n)}</span>
 }
 
 export function ProfitLine({
