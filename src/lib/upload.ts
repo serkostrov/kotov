@@ -1,5 +1,6 @@
 import type { AttachmentKind } from '@/lib/database.types'
 import { supabase } from '@/lib/supabase'
+import { newId } from '@/lib/utils'
 
 const PHOTO_MAX = 25 * 1024 * 1024
 const VIDEO_MAX = 100 * 1024 * 1024
@@ -211,7 +212,7 @@ export async function uploadObjectFile(params: {
           })
   }
 
-  const id = crypto.randomUUID()
+  const id = newId()
   const folder = params.expenseId
     ? `expenses/${params.expenseId}`
     : kind === 'photo'
