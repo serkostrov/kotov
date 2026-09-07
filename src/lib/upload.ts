@@ -97,30 +97,19 @@ export function assertUploadLimits(file: File, kind: AttachmentKind): string | n
   return null
 }
 
-export async function compressPhoto(file: File): Promise<File> {
+async function compressPhoto(file: File): Promise<File> {
   const { default: imageCompression } = await import('browser-image-compression')
   return imageCompression(file, {
-    maxSizeMB: 0.5,
+    maxSizeMB: 0.8,
     maxWidthOrHeight: 1920,
     initialQuality: 0.8,
-    // Worker часто ломается (CSP / Vite / мобильные браузеры) и роняет всю загрузку.
     useWebWorker: false,
     fileType: 'image/jpeg',
   })
 }
 
 async function preparePhoto(file: File): Promise<{ payload: File; ext: string; mime: string }> {
-  try {
-    const compressed = await compressPhoto(file)
-    const blob = compressed instanceof Blob ? compressed : new Blob([compressed], { type: 'image/jpeg' })
-    const mime = normalizeMime(blob.type) || 'image/jpeg'
-    const payload =
-      compressed instanceof File
-        ? new File([compressed], renameExt(file.name, 'jpg'), { type: mime, lastModified: Date.now() })
-        : new File([blob], renameExt(file.name, 'jpg'), { type: mime, lastModified: Date.now() })
-    return { payload, ext: 'jpg', mime: 'image/jpeg' }
-  } catch {
-    // HEIC и часть камерных снимков не сжимаются в браузере — грузим оригинал.
+  const asOriginal = (): { payload: File; ext: string; mime: string } => {
     if (file.size > PHOTO_MAX) {
       throw new Error('Не удалось сжать фото, а оригинал больше 25 МБ.')
     }
@@ -130,16 +119,52 @@ async function preparePhoto(file: File): Promise<{ payload: File; ext: string; m
       throw new Error('Не удалось определить тип изображения.')
     }
     return {
-      payload: new File([file], renameExt(file.name, ext), { type: mime, lastModified: file.lastModified }),
+      payload: file.type === mime ? file : new File([file], renameExt(file.name, ext), {
+        type: mime,
+        lastModified: file.lastModified,
+      }),
       ext,
       mime,
     }
+  }
+
+  // HEIC / редкие форматы часто нельзя сжать в браузере — сразу оригинал.
+  const sourceMime = normalizeMime(file.type) || resolveMime(file, extensionOf(file), '')
+  if (sourceMime.includes('heic') || sourceMime.includes('heif')) {
+    return asOriginal()
+  }
+
+  try {
+    const compressed = await compressPhoto(file)
+    const blob = compressed instanceof Blob ? compressed : new Blob([compressed], { type: 'image/jpeg' })
+    if (!blob.size) return asOriginal()
+    const payload = new File([blob], renameExt(file.name, 'jpg'), {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    })
+    return { payload, ext: 'jpg', mime: 'image/jpeg' }
+  } catch {
+    return asOriginal()
   }
 }
 
 function renameExt(name: string, ext: string): string {
   const base = name.replace(/\.[^.]+$/, '') || 'file'
   return `${base}.${ext}`
+}
+
+function storageErrorMessage(error: unknown): string {
+  if (!error) return 'Неизвестная ошибка хранилища'
+  if (typeof error === 'string') return error
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'object') {
+    const record = error as { message?: unknown; error?: unknown; statusCode?: unknown }
+    const parts = [record.message, record.error, record.statusCode]
+      .filter((v): v is string | number => typeof v === 'string' || typeof v === 'number')
+      .map(String)
+    if (parts.length) return parts.join(' · ')
+  }
+  return 'Неизвестная ошибка хранилища'
 }
 
 export async function uploadObjectFile(params: {
@@ -151,6 +176,8 @@ export async function uploadObjectFile(params: {
   /** Если задан — не угадываем вид файла (нужно для картинок во вкладке «Документы»). */
   kind?: AttachmentKind
 }): Promise<void> {
+  if (!params.objectId) throw new Error('Не выбран объект для загрузки файла.')
+
   const kind = params.kind ?? kindFromFile(params.file)
   const limitError = assertUploadLimits(params.file, kind)
   if (limitError) throw new Error(limitError)
@@ -197,8 +224,11 @@ export async function uploadObjectFile(params: {
   const { error: uploadError } = await supabase.storage.from('object-files').upload(storagePath, payload, {
     contentType: mime,
     upsert: false,
+    cacheControl: '3600',
   })
-  if (uploadError) throw uploadError
+  if (uploadError) {
+    throw new Error(`Не удалось загрузить файл в хранилище: ${storageErrorMessage(uploadError)}`)
+  }
 
   const { error: dbError } = await supabase.from('attachments').insert({
     object_id: params.objectId,
@@ -214,7 +244,7 @@ export async function uploadObjectFile(params: {
 
   if (dbError) {
     await supabase.storage.from('object-files').remove([storagePath])
-    throw dbError
+    throw new Error(`Файл загружен, но не сохранён в базе: ${storageErrorMessage(dbError)}`)
   }
 }
 

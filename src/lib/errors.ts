@@ -31,15 +31,16 @@ const MESSAGES: Array<{ match: string | RegExp; text: string }> = [
   { match: /violates foreign key/i, text: 'Связанная запись не найдена. Обновите страницу.' },
   { match: /row-level security/i, text: 'Недостаточно прав для этого действия.' },
   { match: /permission denied/i, text: 'Недостаточно прав для этого действия.' },
-  { match: /Bucket not found/i, text: 'Хранилище файлов не настроено. Обратитесь к администратору.' },
+  { match: /Bucket not found|NoSuchBucket/i, text: 'Хранилище файлов не настроено. Примените миграции storage на сервере.' },
   { match: /mime type|InvalidMimeType/i, text: 'Этот тип файла не поддерживается.' },
   { match: /maximum allowed size|Payload too large|entity too large|exceeded the maximum/i, text: 'Файл слишком большой для загрузки.' },
   { match: /The resource already exists|Duplicate/i, text: 'Такой файл уже загружен. Попробуйте ещё раз.' },
+  { match: /Unauthorized|Access denied|statusCode.:.\s*403|forbidden/i, text: 'Недостаточно прав для загрузки файла. Проверьте доступ к объекту.' },
   { match: /JWT expired/i, text: 'Сессия истекла. Войдите снова.' },
   { match: /Invalid login credentials/i, text: 'Неверный email или пароль.' },
   { match: /Email not confirmed/i, text: 'Email ещё не подтверждён.' },
   { match: /User already registered/i, text: 'Пользователь с таким email уже есть.' },
-  { match: /Failed to fetch|NetworkError|fetch/i, text: 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз. Введённые данные сохранены.' },
+  { match: /Failed to fetch|NetworkError|TypeError: fetch/i, text: 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз. Введённые данные сохранены.' },
 ]
 
 const FALLBACK = 'Не получилось выполнить действие. Попробуйте ещё раз.'
@@ -56,7 +57,8 @@ export function humanizeError(error: unknown): string {
     }
   }
 
-  if (/^[\u0400-\u04FF]/.test(raw) && raw.length < 180) return raw
+  if (/^[\u0400-\u04FF]/.test(raw) && raw.length < 220) return raw
+  if (raw.length > 0 && raw.length < 180) return `Ошибка: ${raw}`
   return FALLBACK
 }
 
