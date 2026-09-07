@@ -1,22 +1,34 @@
-/** Фон как на странице входа: тёмный градиент + лёгкая сетка. */
-export function AuthBackdrop({ className }: { className?: string }) {
+/** Фон: тёмный градиент + лёгкая сетка (логин) или спокойный сайдбар. */
+export function AuthBackdrop({
+  className,
+  variant = 'auth',
+}: {
+  className?: string
+  variant?: 'auth' | 'sidebar'
+}) {
+  const isSidebar = variant === 'sidebar'
+
   return (
     <div className={className} aria-hidden>
       <div
         className="absolute inset-0"
         style={{
-          backgroundImage: `
+          backgroundImage: isSidebar
+            ? undefined
+            : `
             radial-gradient(ellipse 70% 55% at 15% 10%, oklch(0.78 0.08 55 / 0.35), transparent 55%),
             radial-gradient(ellipse 55% 45% at 90% 85%, oklch(0.75 0.05 230 / 0.35), transparent 50%),
             linear-gradient(160deg, oklch(0.28 0.03 250), oklch(0.22 0.025 250) 45%, oklch(0.2 0.02 250))
           `,
+          backgroundColor: isSidebar ? 'var(--sidebar)' : undefined,
         }}
       />
       <div
-        className="absolute inset-0 opacity-[0.12]"
+        className="absolute inset-0"
         style={{
+          opacity: isSidebar ? 0.035 : 0.12,
           backgroundImage:
-            'linear-gradient(oklch(1 0 0 / 0.4) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0 / 0.4) 1px, transparent 1px)',
+            'linear-gradient(oklch(1 0 0 / 0.35) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0 / 0.35) 1px, transparent 1px)',
           backgroundSize: '32px 32px',
         }}
       />

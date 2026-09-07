@@ -62,7 +62,7 @@ export function AppShell() {
   return (
     <div className="flex min-h-dvh">
       <aside className="sticky top-0 z-40 hidden h-dvh w-[14.25rem] shrink-0 flex-col overflow-hidden text-sidebar-foreground lg:flex">
-        <AuthBackdrop className="pointer-events-none absolute inset-0" />
+        <AuthBackdrop variant="sidebar" className="pointer-events-none absolute inset-0" />
         <div className="relative flex h-full flex-col">
           <Brand name={brandName} />
           <nav className="flex flex-1 flex-col gap-0.5 px-2.5 py-1">
@@ -90,7 +90,7 @@ export function AppShell() {
               side="left"
               className="w-[15.5rem] overflow-hidden border-sidebar-border bg-transparent p-0 text-sidebar-foreground"
             >
-              <AuthBackdrop className="pointer-events-none absolute inset-0" />
+              <AuthBackdrop variant="sidebar" className="pointer-events-none absolute inset-0" />
               <div className="relative flex h-full flex-col">
                 <SheetHeader className="sr-only">
                   <SheetTitle>Меню</SheetTitle>

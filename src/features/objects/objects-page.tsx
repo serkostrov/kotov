@@ -323,7 +323,7 @@ export function ObjectsPage() {
             <AlertDialogTitle>Удалить объект?</AlertDialogTitle>
             <AlertDialogDescription>
               {deleting
-                ? `«${deleting.name}» будет скрыт из реестра. Этапы и файлы останутся в базе, но объект перестанет отображаться.`
+                ? `«${deleting.name}» будет удалён вместе с работами, расходами, файлами, задачами и историей по объекту. Инструмент с объекта вернётся в свободные.`
                 : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>

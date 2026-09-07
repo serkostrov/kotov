@@ -428,7 +428,7 @@ export function StagePage() {
               <label className="inline-flex">
                 <input
                   type="file"
-                  accept="image/*,video/*"
+                  accept="image/*,video/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.mp4,.mov"
                   multiple
                   className="hidden"
                   onChange={(e) => {

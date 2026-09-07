@@ -160,7 +160,11 @@ export function ObjectCardPage() {
     let ok = 0
     try {
       for (const file of list) {
-        await uploadObjectFile({ file, objectId: id })
+        await uploadObjectFile({
+          file,
+          objectId: id,
+          kind: kind === 'doc' ? 'document' : undefined,
+        })
         ok += 1
       }
       toast.success(
@@ -301,7 +305,7 @@ export function ObjectCardPage() {
       <input
         ref={mediaInputRef}
         type="file"
-        accept="image/*,video/*"
+        accept="image/*,video/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.mp4,.mov"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -402,7 +406,8 @@ export function ObjectCardPage() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Удалить объект?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  «{object.name}» будет скрыт из реестра. Этапы и файлы останутся в базе, но объект перестанет отображаться.
+                  «{object.name}» будет удалён вместе с работами, расходами, файлами, задачами и
+                  историей по объекту. Инструмент с объекта вернётся в свободные.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1473,15 +1478,21 @@ function ExpensesTab({
           try {
             const created = await create.mutateAsync({ ...values, object_id: objectId })
             let failed = 0
+            let lastError: unknown = null
             for (const file of files) {
               try {
                 await uploadObjectFile({ file, objectId, expenseId: created.id })
-              } catch {
+              } catch (error) {
                 failed += 1
+                lastError = error
               }
             }
             if (files.length > 0 && failed > 0) {
-              toast.success('Расход добавлен, файл не загружен')
+              toast.error(
+                failed === files.length
+                  ? `Расход сохранён, но файл не загружен. ${humanizeError(lastError)}`
+                  : `Расход сохранён. Не удалось загрузить файлов: ${failed}. ${humanizeError(lastError)}`,
+              )
             } else {
               toast.success('Расход добавлен')
             }

@@ -31,6 +31,10 @@ const MESSAGES: Array<{ match: string | RegExp; text: string }> = [
   { match: /violates foreign key/i, text: 'Связанная запись не найдена. Обновите страницу.' },
   { match: /row-level security/i, text: 'Недостаточно прав для этого действия.' },
   { match: /permission denied/i, text: 'Недостаточно прав для этого действия.' },
+  { match: /Bucket not found/i, text: 'Хранилище файлов не настроено. Обратитесь к администратору.' },
+  { match: /mime type|InvalidMimeType/i, text: 'Этот тип файла не поддерживается.' },
+  { match: /maximum allowed size|Payload too large|entity too large|exceeded the maximum/i, text: 'Файл слишком большой для загрузки.' },
+  { match: /The resource already exists|Duplicate/i, text: 'Такой файл уже загружен. Попробуйте ещё раз.' },
   { match: /JWT expired/i, text: 'Сессия истекла. Войдите снова.' },
   { match: /Invalid login credentials/i, text: 'Неверный email или пароль.' },
   { match: /Email not confirmed/i, text: 'Email ещё не подтверждён.' },
@@ -61,10 +65,18 @@ function extractMessage(error: unknown): string {
   if (typeof error === 'string') return error
   if (error instanceof Error) return error.message
   if (typeof error === 'object') {
-    const record = error as { message?: unknown; error_description?: unknown; details?: unknown }
-    if (typeof record.message === 'string') return record.message
+    const record = error as {
+      message?: unknown
+      error?: unknown
+      error_description?: unknown
+      details?: unknown
+      statusCode?: unknown
+    }
+    if (typeof record.message === 'string' && record.message.trim()) return record.message
+    if (typeof record.error === 'string' && record.error.trim()) return record.error
     if (typeof record.error_description === 'string') return record.error_description
     if (typeof record.details === 'string') return record.details
+    if (record.statusCode != null) return String(record.statusCode)
   }
   return ''
 }

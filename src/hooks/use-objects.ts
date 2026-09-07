@@ -411,6 +411,25 @@ export function useObjectMutations() {
     void client.invalidateQueries({ queryKey: qk.contacts })
   }
 
+  const invalidateAfterDelete = () => {
+    invalidate()
+    void client.invalidateQueries({ queryKey: ['expenses'] })
+    void client.invalidateQueries({ queryKey: ['object-economics'] })
+    void client.invalidateQueries({ queryKey: ['object-expenses-cat'] })
+    void client.invalidateQueries({ queryKey: ['object-expenses-contour'] })
+    void client.invalidateQueries({ queryKey: ['object-stages'] })
+    void client.invalidateQueries({ queryKey: ['object-stage'] })
+    void client.invalidateQueries({ queryKey: ['object-progress'] })
+    void client.invalidateQueries({ queryKey: ['attachments'] })
+    void client.invalidateQueries({ queryKey: ['requests'] })
+    void client.invalidateQueries({ queryKey: ['tools'] })
+    void client.invalidateQueries({ queryKey: ['tool'] })
+    void client.invalidateQueries({ queryKey: ['tool-movements'] })
+    void client.invalidateQueries({ queryKey: ['object-tools'] })
+    void client.invalidateQueries({ queryKey: ['activity'] })
+    void client.invalidateQueries({ queryKey: ['object-members'] })
+  }
+
   const create = useMutation({
     mutationFn: async (values: TablesInsert<'objects'>) => {
       const { data, error } = await supabase.from('objects').insert(values).select('id').single()
@@ -433,7 +452,7 @@ export function useObjectMutations() {
       const { error } = await supabase.rpc('soft_delete_object', { _id: id })
       if (error) throw error
     },
-    onSuccess: invalidate,
+    onSuccess: invalidateAfterDelete,
   })
 
   return { create, update, softDelete }
